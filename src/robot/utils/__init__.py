@@ -54,7 +54,7 @@ from .match import eq, Matcher, MultiMatcher
 from .misc import (classproperty, isatty, parse_re_flags, plural_or_not,
                    printable_name, seq2str, seq2str2, test_or_task)
 from .normalizing import normalize, normalize_whitespace, NormalizedDict
-from .notset import NOT_SET
+from .notset import NOT_SET, NotSet
 from .platform import PY_VERSION, PYPY, UNIXY, WINDOWS, RERAISED_EXCEPTIONS
 from .recommendations import RecommendationFinder
 from .robotenv import get_env_var, set_env_var, del_env_var, get_env_vars
@@ -85,13 +85,13 @@ def read_rest_data(rstfile):
 def unic(item):
     # Cannot be deprecated using '__getattr__' because a module with same name exists.
     warnings.warn("'robot.utils.unic' is deprecated and will be removed in "
-                  "Robot Framework 8.0.")
+                  "Robot Framework 9.0.", DeprecationWarning)
     return safe_str(item)
 
 
 def __getattr__(name):
     # Deprecated utils mostly related to the old Python 2/3 compatibility layer.
-    # See also 'unic' above 'PY2' in the 'platform' module. TODO: Remove in RF 8.0.
+    # See also 'unic' above and 'PY2' in 'platform.py'.
     # https://github.com/robotframework/robotframework/issues/4501
 
     from io import StringIO
@@ -123,8 +123,11 @@ def __getattr__(name):
     }
 
     if name in deprecated:
+        # TODO: Change DeprecationWarning to more visible UserWarning in RF 8.0.
+        # https://github.com/robotframework/robotframework/issues/4501
+        # Remember also 'unic' above '__getattr__' and 'PY2' in 'platform.py'.
         warnings.warn(f"'robot.utils.{name}' is deprecated and will be removed in "
-                      f"Robot Framework 8.0.")
+                      f"Robot Framework 9.0.", DeprecationWarning)
         return deprecated[name]
 
-    raise AssertionError(f"'robot.utils' has no attribute '{name}'.")
+    raise AttributeError(f"'robot.utils' has no attribute '{name}'.")

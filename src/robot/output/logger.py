@@ -56,8 +56,8 @@ class Logger(AbstractLogger):
         self._console_logger = None
         self._syslog = None
         self._xml_logger = None
-        self._listeners = None
-        self._library_listeners = None
+        self._cli_listeners = None
+        self._lib_listeners = None
         self._other_loggers = []
         self._message_cache = []
         self._log_message_cache = None
@@ -71,16 +71,24 @@ class Logger(AbstractLogger):
             self.register_console_logger()
 
     @property
+    def _listeners(self):
+        cli_listeners = list(self._cli_listeners or [])
+        lib_listeners = list(self._lib_listeners or [])
+        return sorted(cli_listeners + lib_listeners, key=lambda li: -li.priority)
+
+    @property
     def start_loggers(self):
-        loggers = [self._console_logger, self._syslog, self._xml_logger,
-                   self._listeners, self._library_listeners]
-        return [logger for logger in self._other_loggers + loggers if logger]
+        loggers = (self._other_loggers
+                   + [self._console_logger, self._syslog, self._xml_logger]
+                   + self._listeners)
+        return [logger for logger in loggers if logger]
 
     @property
     def end_loggers(self):
-        loggers = [self._listeners, self._library_listeners,
-                   self._console_logger, self._syslog, self._xml_logger]
-        return [logger for logger in loggers + self._other_loggers if logger]
+        loggers = (self._listeners
+                   + [self._console_logger, self._syslog, self._xml_logger]
+                   + self._other_loggers)
+        return [logger for logger in loggers if logger]
 
     def __iter__(self):
         return iter(self.end_loggers)
@@ -96,8 +104,8 @@ class Logger(AbstractLogger):
             self.close()
 
     def register_console_logger(self, type='verbose', width=78, colors='AUTO',
-                                markers='AUTO', stdout=None, stderr=None):
-        logger = ConsoleOutput(type, width, colors, markers, stdout, stderr)
+                                links='AUTO', markers='AUTO', stdout=None, stderr=None):
+        logger = ConsoleOutput(type, width, colors, links, markers, stdout, stderr)
         self._console_logger = self._wrap_and_relay(logger)
 
     def _wrap_and_relay(self, logger):
@@ -132,10 +140,10 @@ class Logger(AbstractLogger):
         self._xml_logger = None
 
     def register_listeners(self, listeners, library_listeners):
-        self._listeners = listeners
-        self._library_listeners = library_listeners
-        if listeners:
-            self._relay_cached_messages(listeners)
+        self._cli_listeners = listeners
+        self._lib_listeners = library_listeners
+        for listener in listeners or ():
+            self._relay_cached_messages(listener)
 
     def register_logger(self, *loggers):
         for logger in loggers:
@@ -237,6 +245,36 @@ class Logger(AbstractLogger):
     def end_keyword(self, data, result):
         for logger in self.end_loggers:
             logger.end_keyword(data, result)
+
+    @start_body_item
+    def start_user_keyword(self, data, implementation, result):
+        for logger in self.start_loggers:
+            logger.start_user_keyword(data, implementation, result)
+
+    @end_body_item
+    def end_user_keyword(self, data, implementation, result):
+        for logger in self.end_loggers:
+            logger.end_user_keyword(data, implementation, result)
+
+    @start_body_item
+    def start_library_keyword(self, data, implementation, result):
+        for logger in self.start_loggers:
+            logger.start_library_keyword(data, implementation, result)
+
+    @end_body_item
+    def end_library_keyword(self, data, implementation, result):
+        for logger in self.end_loggers:
+            logger.end_library_keyword(data, implementation, result)
+
+    @start_body_item
+    def start_invalid_keyword(self, data, implementation, result):
+        for logger in self.start_loggers:
+            logger.start_invalid_keyword(data, implementation, result)
+
+    @end_body_item
+    def end_invalid_keyword(self, data, implementation, result):
+        for logger in self.end_loggers:
+            logger.end_invalid_keyword(data, implementation, result)
 
     @start_body_item
     def start_for(self, data, result):
@@ -368,14 +406,41 @@ class Logger(AbstractLogger):
         for logger in self.end_loggers:
             logger.end_error(data, result)
 
-    def imported(self, import_type, name, **attrs):
+    def library_import(self, library, importer):
         for logger in self:
-            logger.imported(import_type, name, attrs)
+            logger.library_import(library, importer)
 
-    def output_file(self, file_type, path):
-        """Finished output, report, log, debug, or xunit file"""
+    def resource_import(self, resource, importer):
         for logger in self:
-            logger.output_file(file_type, path)
+            logger.resource_import(resource, importer)
+
+    def variables_import(self, variables, importer):
+        for logger in self:
+            logger.variables_import(variables, importer)
+
+    def output_file(self, path):
+        for logger in self:
+            logger.output_file(path)
+
+    def report_file(self, path):
+        for logger in self:
+            logger.report_file(path)
+
+    def log_file(self, path):
+        for logger in self:
+            logger.log_file(path)
+
+    def xunit_file(self, path):
+        for logger in self:
+            logger.xunit_file(path)
+
+    def debug_file(self, path):
+        for logger in self:
+            logger.debug_file(path)
+
+    def result_file(self, kind, path):
+        kind_file = getattr(self, f'{kind.lower()}_file')
+        kind_file(path)
 
     def close(self):
         for logger in self:

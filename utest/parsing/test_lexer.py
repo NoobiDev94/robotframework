@@ -993,7 +993,7 @@ class TestForLoop(unittest.TestCase):
         header = 'FOR    ${i}    IN    foo    bar'
         expected = [
             (T.FOR, 'FOR', 3, 4),
-            (T.ASSIGN, '${i}', 3, 11),
+            (T.VARIABLE, '${i}', 3, 11),
             (T.FOR_SEPARATOR, 'IN', 3, 19),
             (T.ARGUMENT, 'foo', 3, 25),
             (T.ARGUMENT, 'bar', 3, 32),
@@ -1651,7 +1651,7 @@ Example
 
     @classmethod
     def setUpClass(cls):
-        with open(cls.path, 'w') as f:
+        with open(cls.path, 'w', encoding='UTF-8') as f:
             f.write(cls.data)
 
     @classmethod
@@ -1667,9 +1667,9 @@ Example
         self._verify(Path(self.path), data_only=True)
 
     def test_open_file(self):
-        with open(self.path) as f:
+        with open(self.path, encoding='UTF-8') as f:
             self._verify(f)
-        with open(self.path) as f:
+        with open(self.path, encoding='UTF-8') as f:
             self._verify(f, data_only=True)
 
     def test_string_io(self):
@@ -2007,7 +2007,7 @@ class TestReturn(unittest.TestCase):
     END
 '''
             expected = [(T.FOR, 'FOR', 3, 4),
-                        (T.ASSIGN, '${x}', 3, 11),
+                        (T.VARIABLE, '${x}', 3, 11),
                         (T.FOR_SEPARATOR, 'IN', 3, 19),
                         (T.ARGUMENT, '@{STUFF}', 3, 25),
                         (T.EOS, '', 3, 33),
@@ -2058,7 +2058,7 @@ class TestContinue(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2084,7 +2084,7 @@ class TestContinue(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2109,7 +2109,7 @@ class TestContinue(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2174,7 +2174,7 @@ class TestBreak(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2196,7 +2196,7 @@ class TestBreak(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2232,7 +2232,7 @@ class TestBreak(unittest.TestCase):
     END
 '''
         expected = [(T.FOR, 'FOR', 3, 4),
-                    (T.ASSIGN, '${x}', 3, 11),
+                    (T.VARIABLE, '${x}', 3, 11),
                     (T.FOR_SEPARATOR, 'IN', 3, 19),
                     (T.ARGUMENT, '@{STUFF}', 3, 25),
                     (T.EOS, '', 3, 33),
@@ -2279,6 +2279,16 @@ class TestVar(unittest.TestCase):
         ]
         self._verify(data, expected)
 
+    def test_equals(self):
+        data = 'VAR    ${name}=    value'
+        expected = [
+            (T.VAR, 'VAR', 3, 4),
+            (T.VARIABLE, '${name}=', 3, 11),
+            (T.ARGUMENT, 'value', 3, 23),
+            (T.EOS, '', 3, 28)
+        ]
+        self._verify(data, expected)
+
     def test_multiple_values(self):
         data = 'VAR    @{name}    v1    v2\n...    v3'
         expected = [
@@ -2286,8 +2296,8 @@ class TestVar(unittest.TestCase):
             (T.VARIABLE, '@{name}', 3, 11),
             (T.ARGUMENT, 'v1', 3, 22),
             (T.ARGUMENT, 'v2', 3, 28),
-            (T.ARGUMENT, 'v3', 4, 7),
-            (T.EOS, '', 4, 9)
+            (T.ARGUMENT, 'v3', 4, 11),
+            (T.EOS, '', 4, 13)
         ]
         self._verify(data, expected)
 
@@ -2308,14 +2318,52 @@ class TestVar(unittest.TestCase):
         ]
         self._verify(data, expected)
 
+    def test_no_name_with_continuation(self):
+        data = 'VAR\n...'
+        expected = [
+            (T.VAR, 'VAR', 3, 4),
+            (T.VARIABLE, '', 4, 7),
+            (T.EOS, '', 4, 7)
+        ]
+        self._verify(data, expected)
+
     def test_scope(self):
-        data = 'VAR    ${name}    value    scope=GLOBAL'
+        data = ('VAR    ${name}    value    scope=GLOBAL\n'
+                'VAR    @{name}    value    scope=suite\n'
+                'VAR    &{name}    value    scope=Test\n')
         expected = [
             (T.VAR, 'VAR', 3, 4),
             (T.VARIABLE, '${name}', 3, 11),
             (T.ARGUMENT, 'value', 3, 22),
             (T.OPTION, 'scope=GLOBAL', 3, 31),
-            (T.EOS, '', 3, 43)
+            (T.EOS, '', 3, 43),
+            (T.VAR, 'VAR', 4, 4),
+            (T.VARIABLE, '@{name}', 4, 11),
+            (T.ARGUMENT, 'value', 4, 22),
+            (T.OPTION, 'scope=suite', 4, 31),
+            (T.EOS, '', 4, 42),
+            (T.VAR, 'VAR', 5, 4),
+            (T.VARIABLE, '&{name}', 5, 11),
+            (T.ARGUMENT, 'value', 5, 22),
+            (T.OPTION, 'scope=Test', 5, 31),
+            (T.EOS, '', 5, 41)
+        ]
+        self._verify(data, expected)
+
+    def test_only_one_scope(self):
+        data = ('VAR    ${name}    scope=value    scope=GLOBAL\n'
+                'VAR    &{name}    scope=value    scope=GLOBAL')
+        expected = [
+            (T.VAR, 'VAR', 3, 4),
+            (T.VARIABLE, '${name}', 3, 11),
+            (T.ARGUMENT, 'scope=value', 3, 22),
+            (T.OPTION, 'scope=GLOBAL', 3, 37),
+            (T.EOS, '', 3, 49),
+            (T.VAR, 'VAR', 4, 4),
+            (T.VARIABLE, '&{name}', 4, 11),
+            (T.ARGUMENT, 'scope=value', 4, 22),
+            (T.OPTION, 'scope=GLOBAL', 4, 37),
+            (T.EOS, '', 4, 49)
         ]
         self._verify(data, expected)
 
@@ -2328,6 +2376,18 @@ class TestVar(unittest.TestCase):
             (T.ARGUMENT, 'v2', 3, 28),
             (T.OPTION, 'separator=-', 3, 34),
             (T.EOS, '', 3, 45)
+        ]
+        self._verify(data, expected)
+
+    def test_only_one_separator(self):
+        data = 'VAR    ${name}    scope=v1    separator=v2    separator=-'
+        expected = [
+            (T.VAR, 'VAR', 3, 4),
+            (T.VARIABLE, '${name}', 3, 11),
+            (T.ARGUMENT, 'scope=v1', 3, 22),
+            (T.ARGUMENT, 'separator=v2', 3, 34),
+            (T.OPTION, 'separator=-', 3, 50),
+            (T.EOS, '', 3, 61)
         ]
         self._verify(data, expected)
 
@@ -2344,19 +2404,18 @@ class TestVar(unittest.TestCase):
         self._verify(data, expected)
 
     def test_no_separator_with_dict(self):
-        data = 'VAR    &{name}    k1=v1    k2=v2    separator=-'
+        data = 'VAR    &{name}    scope=value    separator=-'
         expected = [
             (T.VAR, 'VAR', 3, 4),
             (T.VARIABLE, '&{name}', 3, 11),
-            (T.ARGUMENT, 'k1=v1', 3, 22),
-            (T.ARGUMENT, 'k2=v2', 3, 31),
-            (T.ARGUMENT, 'separator=-', 3, 40),
-            (T.EOS, '', 3, 51)
+            (T.ARGUMENT, 'scope=value', 3, 22),
+            (T.ARGUMENT, 'separator=-', 3, 37),
+            (T.EOS, '', 3, 48)
         ]
         self._verify(data, expected)
 
     def _verify(self, data, expected):
-        data = '    ' + '    \n'.join(data.splitlines())
+        data = '    ' + '\n    '.join(data.splitlines())
         data = f'*** Test Cases ***\nName\n{data}'
         expected = [(T.TESTCASE_HEADER, '*** Test Cases ***', 1, 0),
                     (T.EOS, '', 1, 18),
@@ -2410,19 +2469,17 @@ Dokumentaatio    Documentation
 
     def test_per_file_config(self):
         data = '''\
-language: pt    not recognized
+ignored
 language: fi
 ignored    language: pt
-Language:German    # ok!
+Language:Ger    man    # ok!
 *** Asetukset ***
 Dokumentaatio    Documentation
 '''
         expected = [
-            (T.COMMENT, 'language: pt', 1, 0),
-            (T.SEPARATOR, '    ', 1, 12),
-            (T.COMMENT, 'not recognized', 1, 16),
-            (T.EOL, '\n', 1, 30),
-            (T.EOS, '', 1, 31),
+            (T.COMMENT, 'ignored', 1, 0),
+            (T.EOL, '\n', 1, 7),
+            (T.EOS, '', 1, 8),
             (T.CONFIG, 'language: fi', 2, 0),
             (T.EOL, '\n', 2, 12),
             (T.EOS, '', 2, 13),
@@ -2431,11 +2488,13 @@ Dokumentaatio    Documentation
             (T.COMMENT, 'language: pt', 3, 11),
             (T.EOL, '\n', 3, 23),
             (T.EOS, '', 3, 24),
-            (T.CONFIG, 'Language:German', 4, 0),
-            (T.SEPARATOR, '    ', 4, 15),
-            (T.COMMENT, '# ok!', 4, 19),
-            (T.EOL, '\n', 4, 24),
-            (T.EOS, '', 4, 25),
+            (T.CONFIG, 'Language:Ger', 4, 0),
+            (T.SEPARATOR, '    ', 4, 12),
+            (T.CONFIG, 'man', 4, 16),
+            (T.SEPARATOR, '    ', 4, 19),
+            (T.COMMENT, '# ok!', 4, 23),
+            (T.EOL, '\n', 4, 28),
+            (T.EOS, '', 4, 29),
             (T.SETTING_HEADER, '*** Asetukset ***', 5, 0),
             (T.EOL, '\n', 5, 17),
             (T.EOS, '', 5, 18),
@@ -2454,7 +2513,7 @@ Dokumentaatio    Documentation
     def test_invalid_per_file_config(self):
         data = '''\
 language: in:va:lid
-language: bad again    but not recognized as config and ignored
+language: bad    again
 Language: Finnish
 *** Asetukset ***
 Dokumentaatio    Documentation
@@ -2465,11 +2524,15 @@ Dokumentaatio    Documentation
              "nor importable as a language module."),
             (T.EOL, '\n', 1, 19),
             (T.EOS, '', 1, 20),
-            (T.COMMENT, 'language: bad again', 2, 0),
-            (T.SEPARATOR, '    ', 2, 19),
-            (T.COMMENT, 'but not recognized as config and ignored', 2, 23),
-            (T.EOL, '\n', 2, 63),
-            (T.EOS, '', 2, 64),
+            (T.ERROR, 'language: bad', 2, 0,
+             "Invalid language configuration: Language 'bad again' not found "
+             "nor importable as a language module."),
+            (T.SEPARATOR, '    ', 2, 13),
+            (T.ERROR, 'again', 2, 17,
+             "Invalid language configuration: Language 'bad again' not found "
+             "nor importable as a language module."),
+            (T.EOL, '\n', 2, 22),
+            (T.EOS, '', 2, 23),
             (T.CONFIG, 'Language: Finnish', 3, 0),
             (T.EOL, '\n', 3, 17),
             (T.EOS, '', 3, 18),

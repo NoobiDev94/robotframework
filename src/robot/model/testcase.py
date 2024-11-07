@@ -48,10 +48,10 @@ class TestCase(ModelObject, Generic[KW]):
 
     def __init__(self, name: str = '',
                  doc: str = '',
-                 tags: Sequence[str] = (),
+                 tags: 'Tags|Sequence[str]' = (),
                  timeout: 'str|None' = None,
                  lineno: 'int|None' = None,
-                 parent: 'TestSuite|None' = None):
+                 parent: 'TestSuite[KW, TestCase[KW]]|None' = None):
         self.name = name
         self.doc = doc
         self.tags = tags
@@ -68,7 +68,7 @@ class TestCase(ModelObject, Generic[KW]):
         return self.body_class(self, body)
 
     @setter
-    def tags(self, tags: Sequence[str]) -> Tags:
+    def tags(self, tags: 'Tags|Sequence[str]') -> Tags:
         """Test tags as a :class:`~.model.tags.Tags` object."""
         return Tags(tags)
 
@@ -175,9 +175,6 @@ class TestCase(ModelObject, Generic[KW]):
     def visit(self, visitor: 'SuiteVisitor'):
         """:mod:`Visitor interface <robot.model.visitor>` entry-point."""
         visitor.visit_test(self)
-
-    def __str__(self) -> str:
-        return self.name
 
     def to_dict(self) -> 'dict[str, Any]':
         data: 'dict[str, Any]' = {'name': self.name}

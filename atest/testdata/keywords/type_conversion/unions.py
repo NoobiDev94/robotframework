@@ -1,9 +1,7 @@
+from datetime import date, timedelta
+from collections.abc import Mapping
 from numbers import Rational
-from typing import List, Optional, Union
-try:
-    from typing import TypedDict
-except ImportError:
-    from typing_extensions import TypedDict
+from typing import List, Optional, TypedDict, Union
 
 
 class MyObject:
@@ -17,6 +15,10 @@ class AnotherObject:
 class BadRationalMeta(type(Rational)):
     def __instancecheck__(self, instance):
         raise TypeError('Bang!')
+
+
+class XD(TypedDict):
+    x: int
 
 
 class BadRational(Rational, metaclass=BadRationalMeta):
@@ -59,11 +61,22 @@ def union_with_subscripted_generics_and_str(argument: Union[List[str], str], exp
     assert argument == eval(expected), '%r != %s' % (argument, expected)
 
 
-def union_with_typeddict(argument: Union[TypedDict('X', x=int), None], expected):
+def union_with_typeddict(argument: Union[XD, None], expected):
+    assert argument == eval(expected), '%r != %s' % (argument, expected)
+
+
+def union_with_str_and_typeddict(argument: Union[str, XD], expected, non_dict_mapping=False):
+    if non_dict_mapping:
+        assert isinstance(argument, Mapping) and not isinstance(argument, dict)
+        argument = dict(argument)
     assert argument == eval(expected), '%r != %s' % (argument, expected)
 
 
 def union_with_item_not_liking_isinstance(argument: Union[BadRational, int], expected):
+    assert argument == expected, '%r != %r' % (argument, expected)
+
+
+def union_with_multiple_types(argument: Union[int, float, None, date, timedelta], expected=object()):
     assert argument == expected, '%r != %r' % (argument, expected)
 
 

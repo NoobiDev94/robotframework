@@ -3,7 +3,7 @@ import unittest
 from array import array
 from collections import UserDict, UserList, UserString
 from collections.abc import Mapping
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from robot.utils import (is_bytes, is_falsy, is_dict_like, is_list_like, is_string,
                          is_truthy, is_union, PY_VERSION, type_name, type_repr)
@@ -62,7 +62,7 @@ class TestListLike(unittest.TestCase):
             assert_equal(is_list_like(thing), True, thing)
 
     def test_files_are_not_list_like(self):
-        with open(__file__) as f:
+        with open(__file__, encoding='UTF-8') as f:
             assert_equal(is_list_like(f), False)
         assert_equal(is_list_like(f), False)
 
@@ -123,7 +123,7 @@ class TestTypeName(unittest.TestCase):
             assert_equal(type_name(item), exp)
 
     def test_file(self):
-        with open(__file__) as f:
+        with open(__file__, encoding='UTF-8') as f:
             assert_equal(type_name(f), 'file')
 
     def test_custom_objects(self):
@@ -157,6 +157,8 @@ class TestTypeName(unittest.TestCase):
                           (Union[int, str], 'Union'),
                           (Optional, 'Optional'),
                           (Optional[int], 'Union'),
+                          (Literal, 'Literal'),
+                          (Literal['x', 1], 'Literal'),
                           (Any, 'Any')]:
             assert_equal(type_name(item), exp)
 
@@ -205,8 +207,13 @@ class TestTypeRepr(unittest.TestCase):
     def test_union(self):
         assert_equal(type_repr(Union[int, float]), 'int | float')
         assert_equal(type_repr(Union[int, None, List[Any]]), 'int | None | List[Any]')
+        assert_equal(type_repr(Union), 'Union')
         if PY_VERSION >= (3, 10):
             assert_equal(type_repr(int | None | list[Any]), 'int | None | list[Any]')
+
+    def test_literal(self):
+        assert_equal(type_repr(Literal['x', 1, True]), "Literal['x', 1, True]")
+        assert_equal(type_repr(Literal['x', 1, True], nested=False), "Literal")
 
 
 class TestIsTruthyFalsy(unittest.TestCase):

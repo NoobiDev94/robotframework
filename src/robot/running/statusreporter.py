@@ -22,9 +22,11 @@ from robot.utils import ErrorDetails
 
 class StatusReporter:
 
-    def __init__(self, data, result, context, run=True, suppress=False):
+    def __init__(self, data, result, context, run=True, suppress=False,
+                 implementation=None):
         self.data = data
         self.result = result
+        self.implementation = implementation
         self.context = context
         if run:
             self.pass_status = result.PASS
@@ -40,7 +42,7 @@ class StatusReporter:
         self.initial_test_status = context.test.status if context.test else None
         if not result.start_time:
             result.start_time = datetime.now()
-        context.start_body_item(self.data, result)
+        context.start_body_item(self.data, result, self.implementation)
         if result.type in result.KEYWORD_TYPES:
             self._warn_if_deprecated(result.doc, result.full_name)
         return self
@@ -50,10 +52,10 @@ class StatusReporter:
             message = ' ' + doc.split('*', 2)[-1].strip()
             self.context.warn(f"Keyword '{name}' is deprecated.{message}")
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_value, exc_traceback):
         context = self.context
         result = self.result
-        failure = self._get_failure(exc_type, exc_val, exc_tb, context)
+        failure = self._get_failure(exc_value, context)
         if failure is None:
             result.status = self.pass_status
         else:
@@ -63,12 +65,17 @@ class StatusReporter:
         if self.initial_test_status == 'PASS':
             context.test.status = result.status
         result.elapsed_time = datetime.now() - result.start_time
-        context.end_body_item(self.data, result)
-        if failure is not exc_val and not self.suppress:
+        orig_status = (result.status, result.message)
+        context.end_body_item(self.data, result, self.implementation)
+        if orig_status != (result.status, result.message):
+            if result.passed or result.not_run:
+                return True
+            raise ExecutionFailed(result.message, skip=result.skipped)
+        if failure is not exc_value and not self.suppress:
             raise failure
         return self.suppress
 
-    def _get_failure(self, exc_type, exc_value, exc_tb, context):
+    def _get_failure(self, exc_value, context):
         if exc_value is None:
             return None
         if isinstance(exc_value, ExecutionStatus):

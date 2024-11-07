@@ -176,6 +176,8 @@ Options
                           can also be further processed with Rebot tool. Can be
                           disabled by giving a special value `NONE`.
                           Default: output.xml
+    --legacyoutput        Create XML output file in format compatible with
+                          Robot Framework 6.x and earlier.
  -l --log file            HTML log file. Can be disabled by giving a special
                           value `NONE`. Default: log.html
                           Examples: `--log mylog.html`, `-l NONE`
@@ -339,6 +341,9 @@ Options
                           on:   always use colors
                           ansi: like `on` but use ANSI colors also on Windows
                           off:  disable colors altogether
+    --consolelinks auto|off  Control making paths to results files hyperlinks.
+                          auto: use links when colors are enabled (default)
+                          off: disable links unconditionally
  -K --consolemarkers auto|on|off  Show markers on the console when top level
                           keywords in a test case end. Values have same
                           semantics as with --consolecolors.

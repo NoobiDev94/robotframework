@@ -9,6 +9,9 @@ Resource          atest_resource.robot
 Evaluate
     Check Test Case    ${TESTNAME}
 
+Custom additions to builtins are supported
+    Check Test Case    ${TESTNAME}
+
 Modules are imported automatically
     Check Test Case    ${TESTNAME}
 
@@ -111,7 +114,7 @@ Evaluate Nonstring
 Evaluate doesn't see module globals
     Check Test Case    ${TESTNAME}
 
-Automatic variables are not seen in expression part of comprehensions
+Automatic variables are seen in expression part of comprehensions only with Python 3.12+
     Check Test Case    ${TESTNAME}
 
 Automatic variables are not seen inside lambdas

@@ -17,7 +17,7 @@ import inspect
 import asyncio
 from contextlib import contextmanager
 
-from robot.errors import DataError
+from robot.errors import DataError, ExecutionFailed
 
 
 class Asynchronous:
@@ -36,7 +36,15 @@ class Asynchronous:
             self._loop_ref.close()
 
     def run_until_complete(self, coroutine):
-        return self.event_loop.run_until_complete(coroutine)
+        task = self.event_loop.create_task(coroutine)
+        try:
+            return self.event_loop.run_until_complete(task)
+        except ExecutionFailed as e:
+            if e.dont_continue:
+                task.cancel()
+                # wait for task and its children to cancel
+                self.event_loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
+            raise e
 
     def is_loop_required(self, obj):
         return inspect.iscoroutine(obj) and not self._is_loop_running()
@@ -104,6 +112,10 @@ class _ExecutionContext:
         self.user_keywords = []
         self.asynchronous = asynchronous
 
+    @property
+    def languages(self):
+        return self.namespace.languages
+
     @contextmanager
     def suite_teardown(self):
         self.in_suite_teardown = True
@@ -170,11 +182,14 @@ class _ExecutionContext:
     def continue_on_failure(self, default=False):
         parents = ([self.test] if self.test else []) + self.user_keywords
         for index, parent in enumerate(reversed(parents)):
-            if (parent.tags.robot('recursive-stop-on-failure')
-                    or index == 0 and parent.tags.robot('stop-on-failure')):
+            robot = parent.tags.robot
+            if index == 0 and robot('stop-on-failure'):
                 return False
-            if (parent.tags.robot('recursive-continue-on-failure')
-                    or index == 0 and parent.tags.robot('continue-on-failure')):
+            if index == 0 and robot('continue-on-failure'):
+                return True
+            if robot('recursive-stop-on-failure'):
+                return False
+            if robot('recursive-continue-on-failure'):
                 return True
         return default or self.in_teardown
 
@@ -233,13 +248,22 @@ class _ExecutionContext:
         self.variables.set_suite('${PREV_TEST_MESSAGE}', test.message)
         self.timeout_occurred = False
 
-    def start_body_item(self, data, result):
+    def start_body_item(self, data, result, implementation=None):
         self.steps.append((data, result))
         if len(self.steps) > self._started_keywords_threshold:
             raise DataError('Maximum limit of started keywords and control '
                             'structures exceeded.')
         output = self.output
-        if result.type in (result.ELSE, result.ITERATION):
+        args = (data, result)
+        if implementation:
+            if implementation.error:
+                method = output.start_invalid_keyword
+            elif implementation.type == implementation.LIBRARY_KEYWORD:
+                method = output.start_library_keyword
+            else:
+                method = output.start_user_keyword
+            args = (data, implementation, result)
+        elif result.type in (result.ELSE, result.ITERATION):
             method = {
                 result.IF_ELSE_ROOT: output.start_if_branch,
                 result.TRY_EXCEPT_ROOT: output.start_try_branch,
@@ -248,9 +272,6 @@ class _ExecutionContext:
             }[result.parent.type]
         else:
             method = {
-                result.KEYWORD: output.start_keyword,
-                result.SETUP: output.start_keyword,
-                result.TEARDOWN: output.start_keyword,
                 result.FOR: output.start_for,
                 result.WHILE: output.start_while,
                 result.IF_ELSE_ROOT: output.start_if,
@@ -267,11 +288,20 @@ class _ExecutionContext:
                 result.RETURN: output.start_return,
                 result.ERROR: output.start_error,
             }[result.type]
-        method(data, result)
+        method(*args)
 
-    def end_body_item(self, data, result):
+    def end_body_item(self, data, result, implementation=None):
         output = self.output
-        if result.type in (result.ELSE, result.ITERATION):
+        args = (data, result)
+        if implementation:
+            if implementation.error:
+                method = output.end_invalid_keyword
+            elif implementation.type == implementation.LIBRARY_KEYWORD:
+                method = output.end_library_keyword
+            else:
+                method = output.end_user_keyword
+            args = (data, implementation, result)
+        elif result.type in (result.ELSE, result.ITERATION):
             method = {
                 result.IF_ELSE_ROOT: output.end_if_branch,
                 result.TRY_EXCEPT_ROOT: output.end_try_branch,
@@ -280,9 +310,6 @@ class _ExecutionContext:
             }[result.parent.type]
         else:
             method = {
-                result.KEYWORD: output.end_keyword,
-                result.SETUP: output.end_keyword,
-                result.TEARDOWN: output.end_keyword,
                 result.FOR: output.end_for,
                 result.WHILE: output.end_while,
                 result.IF_ELSE_ROOT: output.end_if,
@@ -299,7 +326,7 @@ class _ExecutionContext:
                 result.RETURN: output.end_return,
                 result.ERROR: output.end_error,
             }[result.type]
-        method(data, result)
+        method(*args)
         self.steps.pop()
 
     def get_runner(self, name, recommend_on_failure=True):

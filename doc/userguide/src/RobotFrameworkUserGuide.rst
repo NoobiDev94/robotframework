@@ -209,6 +209,7 @@
 .. _download page: http://downloads.robotframework.org
 .. _version control system: http://source.robotframework.org
 .. _previous User Guides: http://robotframework.org/robotframework/#user-guide
+.. _schema file: https://github.com/robotframework/robotframework/tree/master/doc/schema#readme
 
 .. API docs
 
@@ -217,12 +218,20 @@
 .. _running.TestSuite: http://robot-framework.readthedocs.org/en/master/autodoc/robot.running.html#robot.running.model.TestSuite
 .. _running.TestCase: http://robot-framework.readthedocs.org/en/master/autodoc/robot.running.html#robot.running.model.TestCase
 .. _running.Keyword: http://robot-framework.readthedocs.org/en/master/autodoc/robot.running.html#robot.running.model.Keyword
+.. _running.UserKeyword: https://robot-framework.readthedocs.io/en/master/autodoc/robot.running.html#robot.running.resourcemodel.UserKeyword
+.. _running.LibraryKeyword: https://robot-framework.readthedocs.io/en/master/autodoc/robot.running.html#robot.running.librarykeyword.LibraryKeyword
+.. _running.InvalidKeyword: https://robot-framework.readthedocs.io/en/master/autodoc/robot.running.html#robot.running.invalidkeyword.InvalidKeyword
+.. _running.TestLibrary: https://robot-framework.readthedocs.io/en/stable/autodoc/robot.running.html#robot.running.testlibraries.TestLibrary
+.. _running.ResourceFile: https://robot-framework.readthedocs.io/en/stable/autodoc/robot.running.html#robot.running.resourcemodel.ResourceFile
+.. _running.Import: https://robot-framework.readthedocs.io/en/stable/autodoc/robot.running.html#robot.running.resourcemodel.Import
 .. _running model: http://robot-framework.readthedocs.org/en/master/autodoc/robot.running.html#module-robot.running.model
 .. _result.TestSuite: http://robot-framework.readthedocs.org/en/master/autodoc/robot.result.html#robot.result.model.TestSuite
 .. _result.TestCase: http://robot-framework.readthedocs.org/en/master/autodoc/robot.result.html#robot.result.model.TestCase
 .. _result.Keyword: http://robot-framework.readthedocs.org/en/master/autodoc/robot.result.html#robot.result.model.Keyword
 .. _result.Message: http://robot-framework.readthedocs.org/en/master/autodoc/robot.result.html#robot.result.model.Message
 .. _result model: http://robot-framework.readthedocs.org/en/master/autodoc/robot.result.html#module-robot.result.model
+.. _ListenerV2: https://robot-framework.readthedocs.io/en/master/autodoc/robot.api.html#robot.api.interfaces.ListenerV2
+.. _ListenerV3: https://robot-framework.readthedocs.io/en/master/autodoc/robot.api.html#robot.api.interfaces.ListenerV3
 
 .. External link targets
 

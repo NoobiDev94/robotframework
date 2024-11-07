@@ -90,7 +90,7 @@ class TestReporting(unittest.TestCase):
         errors = ExecutionErrors()
         errors.messages.create(message=self.EXPECTED_ERROR_MESSAGE,
                                level='ERROR', timestamp='2020-12-12 12:12:12.000')
-        return Result(root_suite=suite, errors=errors)
+        return Result(suite=suite, errors=errors)
 
     def _verify_output(self, content):
         assert_true(self.EXPECTED_SUITE_NAME in content)
@@ -133,6 +133,7 @@ class StubSettings:
     statistics_config = {}
     xunit_skip_noncritical = False
     expand_keywords = None
+    legacy_output = False
 
     def __init__(self, **settings):
         self.__dict__.update(settings)

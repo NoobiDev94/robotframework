@@ -13,19 +13,27 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from enum import auto, Enum
+import sys
 from collections.abc import Mapping, Sequence, Set
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, ForwardRef, get_type_hints, get_origin, Literal, Union
+if sys.version_info >= (3, 11):
+    from typing import NotRequired, Required
+else:
+    try:
+        from typing_extensions import NotRequired, Required
+    except ImportError:
+        NotRequired = Required = object()
 
-from robot.conf import LanguagesLike
+from robot.conf import Languages, LanguagesLike
 from robot.errors import DataError
 from robot.utils import (has_args, is_union, NOT_SET, plural_or_not as s, setter,
-                         SetterAwareType, type_repr, typeddict_types)
+                         SetterAwareType, type_name, type_repr, typeddict_types)
 
+from ..context import EXECUTION_CONTEXTS
 from .customconverters import CustomArgumentConverters
 from .typeconverters import TypeConverter
 
@@ -61,62 +69,93 @@ TYPE_NAMES = {
     'map': dict,
     'set': set,
     'frozenset': frozenset,
-    'union': Union
+    'union': Union,
+    'literal': Literal
 }
+LITERAL_TYPES = (int, str, bytes, bool, Enum, type(None))
 
 
 class TypeInfo(metaclass=SetterAwareType):
-    """Represents argument type.
+    """Represents an argument type.
 
+    Normally created using the :meth:`from_type_hint` classmethod.
     With unions and parametrized types, :attr:`nested` contains nested types.
+
+    Values can be converted according to this type info by using the
+    :meth:`convert` method.
+
+    Part of the public API starting from Robot Framework 7.0. In such usage
+    should be imported via the :mod:`robot.api` package.
     """
     is_typed_dict = False
     __slots__ = ('name', 'type')
 
     def __init__(self, name: 'str|None' = None,
-                 type: 'type|None' = None,
-                 nested: 'Sequence[TypeInfo]' = ()):
-        if name and not type:
-            type = TYPE_NAMES.get(name.lower())
+                 type: Any = NOT_SET,
+                 nested: 'Sequence[TypeInfo]|None' = None):
+        if type is NOT_SET:
+            type = TYPE_NAMES.get(name.lower()) if name else None
         self.name = name
         self.type = type
         self.nested = nested
 
     @setter
-    def nested(self, nested: 'Sequence[TypeInfo]') -> 'tuple[TypeInfo, ...]':
-        if self.is_union:
-            if not nested:
-                raise DataError('Union used as a type hint cannot be empty.')
-            return tuple(nested)
+    def nested(self, nested: 'Sequence[TypeInfo]') -> 'tuple[TypeInfo, ...]|None':
+        """Nested types as a tuple of ``TypeInfo`` objects.
+
+        Used with parameterized types and unions.
+        """
         typ = self.type
-        if typ is None or not nested:
+        if self.is_union:
+            self._validate_union(nested)
+        elif nested is None:
+            return None
+        elif typ is None:
             return tuple(nested)
-        if not isinstance(typ, type):
-            self._report_nested_error(nested, 0)
+        elif typ is Literal:
+            self._validate_literal(nested)
+        elif not isinstance(typ, type):
+            self._report_nested_error(nested)
         elif issubclass(typ, tuple):
-            if nested[-1].type is Ellipsis and len(nested) != 2:
-                self._report_nested_error(nested, 1, 'Homogenous tuple', -1)
+            if nested[-1].type is Ellipsis:
+                self._validate_nested_count(nested, 2, 'Homogenous tuple', offset=-1)
         elif issubclass(typ, Sequence) and not issubclass(typ, (str, bytes, bytearray)):
-            if len(nested) != 1:
-                self._report_nested_error(nested, 1)
+            self._validate_nested_count(nested, 1)
         elif issubclass(typ, Set):
-            if len(nested) != 1:
-                self._report_nested_error(nested, 1)
+            self._validate_nested_count(nested, 1)
         elif issubclass(typ, Mapping):
-            if len(nested) != 2:
-                self._report_nested_error(nested, 2)
+            self._validate_nested_count(nested, 2)
         elif typ in TYPE_NAMES.values():
-            self._report_nested_error(nested, 0)
+            self._report_nested_error(nested)
         return tuple(nested)
 
-    def _report_nested_error(self, nested, expected, kind=None, offset=0):
+    def _validate_union(self, nested):
+        if not nested:
+            raise DataError('Union cannot be empty.')
+
+    def _validate_literal(self, nested):
+        if not nested:
+            raise DataError('Literal cannot be empty.')
+        for info in nested:
+            if not isinstance(info.type, LITERAL_TYPES):
+                raise DataError(f'Literal supports only integers, strings, bytes, '
+                                f'Booleans, enums and None, value {info.name} is '
+                                f'{type_name(info.type)}.')
+
+    def _validate_nested_count(self, nested, expected, kind=None, offset=0):
+        if len(nested) != expected:
+            self._report_nested_error(nested, expected, kind, offset)
+
+    def _report_nested_error(self, nested, expected=0, kind=None, offset=0):
+        expected += offset
+        actual = len(nested) + offset
         args = ', '.join(str(n) for n in nested)
         kind = kind or f"'{self.name}{'[]' if expected > 0 else ''}'"
         if expected == 0:
-            raise DataError(f"{kind} does not accept arguments, "
-                            f"'{self.name}[{args}]' has {len(nested) + offset}.")
-        raise DataError(f"{kind} requires exactly {expected} argument{s(expected)}, "
-                        f"'{self.name}[{args}]' has {len(nested) + offset}.")
+            raise DataError(f"{kind} does not accept parameters, "
+                            f"'{self.name}[{args}]' has {actual}.")
+        raise DataError(f"{kind} requires exactly {expected} parameter{s(expected)}, "
+                        f"'{self.name}[{args}]' has {actual}.")
 
     @property
     def is_union(self):
@@ -124,30 +163,48 @@ class TypeInfo(metaclass=SetterAwareType):
 
     @classmethod
     def from_type_hint(cls, hint: Any) -> 'TypeInfo':
+        """Construct a ``TypeInfo`` based on a type hint.
+
+        The type hint can be in various different formats:
+
+        - an actual type such as ``int``
+        - a parameterized type such as ``list[int]``
+        - a union such as ``int | float``
+        - a string such as ``'int'``, ``'list[int]'`` or ``'int | float'``
+        - a ``TypedDict`` (represented as a :class:`TypedDictInfo`)
+        - a sequence of supported type hints to create a union from such as
+          ``[int, float]`` or ``('int', 'list[int]')``
+
+        In special cases using a more specialized method like :meth:`from_sequence`
+        may be more appropriate than using this generic method.
+        """
         if hint is NOT_SET:
             return cls()
+        if isinstance(hint, ForwardRef):
+            hint = hint.__forward_arg__
         if isinstance(hint, typeddict_types):
             return TypedDictInfo(hint.__name__, hint)
         if is_union(hint):
-            nested = [cls.from_type_hint(typ) for typ in hint.__args__]
+            nested = [cls.from_type_hint(a) for a in hint.__args__]
             return cls('Union', nested=nested)
         if hasattr(hint, '__origin__'):
-            if has_args(hint):
-                nested = [cls.from_type_hint(t) for t in hint.__args__]
+            if hint.__origin__ is Literal:
+                nested = [cls(repr(a) if not isinstance(a, Enum) else a.name, a)
+                          for a in hint.__args__]
+            elif has_args(hint):
+                nested = [cls.from_type_hint(a) for a in hint.__args__]
             else:
-                nested = []
+                nested = None
             return cls(type_repr(hint, nested=False), hint.__origin__, nested)
+        if isinstance(hint, str):
+            return cls.from_string(hint)
+        if isinstance(hint, (tuple, list)):
+            return cls.from_sequence(hint)
         if isinstance(hint, type):
             return cls(type_repr(hint), hint)
         if hint is None:
             return cls('None', type(None))
-        if isinstance(hint, str):
-            return cls.from_string(hint)
-        if isinstance(hint, dict):
-            return cls.from_dict(hint)
-        if isinstance(hint, (tuple, list)):
-            return cls.from_sequence(hint)
-        if hint is Union:
+        if hint is Union:    # Plain `Union` without params.
             return cls('Union')
         if hint is Any:
             return cls('Any', hint)
@@ -157,24 +214,44 @@ class TypeInfo(metaclass=SetterAwareType):
 
     @classmethod
     def from_type(cls, hint: type) -> 'TypeInfo':
+        """Construct a ``TypeInfo`` based on an actual type.
+
+        Use :meth:`from_type_hint` if the type hint can also be something else
+        than a concrete type such as a string.
+        """
         return cls(type_repr(hint), hint)
 
     @classmethod
     def from_string(cls, hint: str) -> 'TypeInfo':
+        """Construct a ``TypeInfo`` based on a string.
+
+        In addition to just types names or their aliases like ``int`` or ``integer``,
+        supports also parameterized types like ``list[int]`` as well as unions like
+        ``int | float``.
+
+        Use :meth:`from_type_hint` if the type hint can also be something else
+        than a string such as an actual type.
+        """
+        # Needs to be imported here due to cyclic dependency.
+        from .typeinfoparser import TypeInfoParser
         try:
             return TypeInfoParser(hint).parse()
         except ValueError as err:
             raise DataError(str(err))
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'TypeInfo':
-        if not data:
-            return cls()
-        nested = [cls.from_type_hint(n) for n in data['nested']]
-        return cls(data['name'], nested=nested)
-
-    @classmethod
     def from_sequence(cls, sequence: 'tuple|list') -> 'TypeInfo':
+        """Construct a ``TypeInfo`` based on a sequence of types.
+
+        Types can be actual types, strings, or anything else accepted by
+        :meth:`from_type_hint`. If the sequence contains just one type,
+        a ``TypeInfo`` created based on it is returned. If there are more
+        types, the returned ``TypeInfo`` represents a union. Using an empty
+        sequence is an error.
+
+        Use :meth:`from_type_hint` if other types than sequences need to
+        supported.
+        """
         infos = []
         for typ in sequence:
             info = cls.from_type_hint(typ)
@@ -191,8 +268,26 @@ class TypeInfo(metaclass=SetterAwareType):
                 custom_converters: 'CustomArgumentConverters|dict|None' = None,
                 languages: 'LanguagesLike' = None,
                 kind: str = 'Argument'):
+        """Convert ``value`` based on type information this ``TypeInfo`` contains.
+
+        :param value: Value to convert.
+        :param name: Name of the argument or other thing to convert.
+            Used only for error reporting.
+        :param custom_converters: Custom argument converters.
+        :param languages: Language configuration. During execution, uses the
+            current language configuration by default.
+        :param kind: Type of the thing to be converted.
+            Used only for error reporting.
+        :raises: ``TypeError`` if there is no converter for this type or
+            ``ValueError`` is conversion fails.
+        :return: Converted value.
+        """
         if isinstance(custom_converters, dict):
             custom_converters = CustomArgumentConverters.from_dict(custom_converters)
+        if not languages and EXECUTION_CONTEXTS.current:
+            languages = EXECUTION_CONTEXTS.current.languages
+        elif not isinstance(languages, Languages):
+            languages = Languages(languages)
         converter = TypeConverter.converter_for(self, custom_converters, languages)
         if not converter:
             raise TypeError(f"No converter found for '{self}'.")
@@ -201,167 +296,48 @@ class TypeInfo(metaclass=SetterAwareType):
     def __str__(self):
         if self.is_union:
             return ' | '.join(str(n) for n in self.nested)
-        if self.nested:
-            nested = ', '.join(str(n) for n in self.nested)
-            return f'{self.name}[{nested}]'
-        return self.name or ''
+        name = self.name or ''
+        if self.nested is None:
+            return name
+        nested = ', '.join(str(n) for n in self.nested)
+        return f'{name}[{nested}]'
 
     def __bool__(self):
         return self.name is not None
 
 
 class TypedDictInfo(TypeInfo):
+    """Represents ``TypedDict`` used as an argument."""
+
     is_typed_dict = True
     __slots__ = ('annotations', 'required')
 
     def __init__(self, name: str, type: type):
         super().__init__(name, type)
-        self.annotations = {n: TypeInfo.from_type_hint(t)
-                            for n, t in type.__annotations__.items()}
+        type_hints = self._get_type_hints(type)
         # __required_keys__ is new in Python 3.9.
         self.required = getattr(type, '__required_keys__', frozenset())
+        if sys.version_info < (3, 11):
+            self._handle_typing_extensions_required_and_not_required(type_hints)
+        self.annotations = {name: TypeInfo.from_type_hint(hint)
+                            for name, hint in type_hints.items()}
 
-
-class TypeInfoTokenType(Enum):
-    NAME = auto()
-    LEFT_SQUARE = auto()
-    RIGHT_SQUARE = auto()
-    PIPE = auto()
-    COMMA = auto()
-
-    def __repr__(self):
-        return str(self)
-
-
-@dataclass
-class TypeInfoToken:
-    type: TypeInfoTokenType
-    value: str
-    position: int = -1
-
-
-class TypeInfoTokenizer:
-    markers = {
-        '[': TypeInfoTokenType.LEFT_SQUARE,
-        ']': TypeInfoTokenType.RIGHT_SQUARE,
-        '|': TypeInfoTokenType.PIPE,
-        ',': TypeInfoTokenType.COMMA,
-    }
-
-    def __init__(self, source: str):
-        self.source = source
-        self.tokens: 'list[TypeInfoToken]' = []
-        self.start = 0
-        self.current = 0
-
-    @property
-    def at_end(self) -> bool:
-        return self.current >= len(self.source)
-
-    def tokenize(self) -> 'list[TypeInfoToken]':
-        while not self.at_end:
-            self.start = self.current
-            char = self.advance()
-            if char in self.markers:
-                self.add_token(self.markers[char])
-            elif char.strip():
-                self.name()
-        return self.tokens
-
-    def advance(self) -> str:
-        char = self.source[self.current]
-        self.current += 1
-        return char
-
-    def peek(self) -> 'str|None':
+    def _get_type_hints(self, type) -> 'dict[str, Any]':
         try:
-            return self.source[self.current]
-        except IndexError:
-            return None
+            return get_type_hints(type)
+        except Exception:
+            return type.__annotations__
 
-    def name(self):
-        end_at = set(self.markers) | {None}
-        while self.peek() not in end_at:
-            self.current += 1
-        self.add_token(TypeInfoTokenType.NAME)
-
-    def add_token(self, type: TypeInfoTokenType):
-        value = self.source[self.start:self.current].strip()
-        self.tokens.append(TypeInfoToken(type, value, self.start))
-
-
-class TypeInfoParser:
-
-    def __init__(self, source: str):
-        self.source = source
-        self.tokens: 'list[TypeInfoToken]' = []
-        self.current = 0
-
-    @property
-    def at_end(self) -> bool:
-        return self.peek() is None
-
-    def parse(self) -> 'TypeInfo':
-        self.tokens = TypeInfoTokenizer(self.source).tokenize()
-        info = self.type()
-        if not self.at_end:
-            self.error(f"Extra content after '{info}'.")
-        return info
-
-    def type(self) -> 'TypeInfo':
-        if not self.check(TypeInfoTokenType.NAME):
-            self.error('Type name missing.')
-        info = TypeInfo(self.advance().value)
-        if self.match(TypeInfoTokenType.LEFT_SQUARE):
-            info.nested = self.params()
-        if self.match(TypeInfoTokenType.PIPE):
-            nested = [info] + self.union()
-            info = TypeInfo('Union', nested=nested)
-        return info
-
-    def params(self) -> 'list[TypeInfo]':
-        params = []
-        while not params or self.match(TypeInfoTokenType.COMMA):
-            params.append(self.type())
-        if not self.match(TypeInfoTokenType.RIGHT_SQUARE):
-            self.error("Closing ']' missing.")
-        return params
-
-    def union(self) -> 'list[TypeInfo]':
-        types = []
-        while not types or self.match(TypeInfoTokenType.PIPE):
-            info = self.type()
-            if info.is_union:
-                types.extend(info.nested)
-            else:
-                types.append(info)
-        return types
-
-    def match(self, *types: TypeInfoTokenType) -> bool:
-        for typ in types:
-            if self.check(typ):
-                self.advance()
-                return True
-        return False
-
-    def check(self, expected: TypeInfoTokenType) -> bool:
-        peeked = self.peek()
-        return peeked and peeked.type == expected
-
-    def advance(self) -> 'TypeInfoToken|None':
-        token = self.peek()
-        if token:
-            self.current += 1
-        return token
-
-    def peek(self) -> 'TypeInfoToken|None':
-        try:
-            return self.tokens[self.current]
-        except IndexError:
-            return None
-
-    def error(self, message: str):
-        token = self.peek()
-        position = f'index {token.position}' if token else 'end'
-        raise ValueError(f"Parsing type {self.source!r} failed: "
-                         f"Error at {position}: {message}")
+    def _handle_typing_extensions_required_and_not_required(self, type_hints):
+        # NotRequired and Required are handled automatically by Python 3.11 and newer,
+        # but with older they appear in type hints and need to be handled separately.
+        required = set(self.required)
+        for key, hint in type_hints.items():
+            origin = get_origin(hint)
+            if origin is Required:
+                required.add(key)
+                type_hints[key] = hint.__args__[0]
+            elif origin is NotRequired:
+                required.discard(key)
+                type_hints[key] = hint.__args__[0]
+        self.required = frozenset(required)

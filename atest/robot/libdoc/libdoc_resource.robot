@@ -31,8 +31,8 @@ Run Libdoc And Parse Output
 
 Run Libdoc And Verify Output
     [Arguments]    ${args}    @{expected}
+    VAR    ${expected}    @{expected}    separator=\n
     ${output}=    Run Libdoc    ${args}
-    ${expected}=    Catenate    SEPARATOR=\n    @{expected}
     Should Match    ${output}   ${expected}\n
 
 Run Libdoc And Parse Model From HTML
@@ -80,7 +80,7 @@ Type Should Be
     Element Attribute Should Be    ${LIBDOC}    type    ${type}
 
 Scope Should Be
-    [Arguments]    ${scope}    ${old}=${{ {'GLOBAL': 'global', 'SUITE': 'test suite', 'TEST': 'test case'}[$scope] }}
+    [Arguments]    ${scope}
     Element Attribute Should Be    ${LIBDOC}    scope    ${scope}
 
 Source Should Be
@@ -138,7 +138,7 @@ Verify Arguments Structure
     [Arguments]    ${index}   ${xpath}    ${expected}
     ${kws}=    Get Elements    ${LIBDOC}    xpath=${xpath}
     ${arg_elems}=    Get Elements    ${kws}[${index}]    xpath=arguments/arg
-    FOR    ${arg_elem}    ${exp_repr}    IN ZIP     ${arg_elems}    ${expected}
+    FOR    ${arg_elem}    ${exp_repr}    IN ZIP     ${arg_elems}    ${expected}    mode=STRICT
         IF    $INTERPRETER.version_info >= (3, 11)
             ${exp_repr} =    Replace String    ${exp_repr}    | None = None    = None
         END
@@ -164,7 +164,20 @@ Verify Arguments Structure
         Verify Argument Model    ${arg_model}    ${exp_repr}
         Should Be Equal    ${repr}    ${exp_repr}
     END
-    Should Be Equal    ${{len($arg_elems)}}    ${{len($expected)}}
+
+Return Type Should Be
+    [Arguments]    ${index}    ${name}    @{nested}
+    ${kws}=    Get Elements    ${LIBDOC}    xpath=keywords/kw
+    VAR    ${kw}    ${kws}[${index}]
+    IF    $name.upper() == 'NONE'
+        Element Should Not Exist    ${kw}    returntype
+        RETURN
+    END
+    Element Attribute Should Be    ${kw}    name    ${name}    xpath=returntype
+    ${type_elems} =    Get Elements    ${kw}    returntype/type
+    FOR    ${elem}    ${expected}    IN ZIP    ${type_elems}    ${nested}    mode=STRICT
+        Element Attribute Should Be    ${elem}    name    ${expected}
+    END
 
 Get Type
     [Arguments]    ${elem}
@@ -295,52 +308,48 @@ List of Dict Should Be Equal
 
 DataType Enum Should Be
     [Arguments]    ${index}    ${name}    ${doc}    @{exp_members}
-    FOR    ${xpath}    IN    datatypes/enums/enum    typedocs/type[@type='Enum']
-        ${enums}=   Get Elements    ${LIBDOC}   xpath=${xpath}
-        Element Attribute Should Be    ${enums}[${index}]     name   ${name}
-        Element Text Should Be    ${enums}[${index}]     ${doc}    xpath=doc
-        ${members}=    Get Elements    ${enums}[${index}]    xpath=members/member
-        FOR   ${member}    ${exp_member}    IN ZIP    ${members}    ${exp_members}
-            ${attrs}=    Get Element Attributes    ${member}
-            Element Attribute Should Be    ${member}    name     ${{${exp_member}}}[name]
-            Element Attribute Should Be    ${member}    value    ${{${exp_member}}}[value]
-        END
+    ${enums}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='Enum']
+    Element Attribute Should Be    ${enums}[${index}]     name   ${name}
+    Element Text Should Be    ${enums}[${index}]     ${doc}    xpath=doc
+    ${members}=    Get Elements    ${enums}[${index}]    xpath=members/member
+    FOR   ${member}    ${exp_member}    IN ZIP    ${members}    ${exp_members}
+        ${attrs}=    Get Element Attributes    ${member}
+        Element Attribute Should Be    ${member}    name     ${{${exp_member}}}[name]
+        Element Attribute Should Be    ${member}    value    ${{${exp_member}}}[value]
     END
 
 DataType TypedDict Should Be
     [Arguments]    ${index}    ${name}    ${doc}    @{exp_items}
-    FOR    ${xpath}    IN    datatypes/typeddicts/typeddict    typedocs/type[@type='TypedDict']
-        ${dicts}=   Get Elements    ${LIBDOC}   xpath=${xpath}
-        Element Attribute Should Be    ${dicts}[${index}]     name   ${name}
-        Element Text Should Be    ${dicts}[${index}]     ${doc}    xpath=doc
-        ${items}=    Get Elements    ${dicts}[${index}]    xpath=items/item
-        FOR   ${exp_item}    IN    @{exp_items}
-            ${exp}=    Evaluate    json.loads($exp_item)
-            FOR    ${item}    IN    @{items}
-                ${cur}=    Get Element Attributes    ${item}
-                IF    $cur['key'] == $exp['key']
-                    Should Be Equal    ${cur}[key]     ${exp}[key]
-                    Should Be Equal    ${cur}[type]    ${exp}[type]
-                    IF    'required' in $exp
-                        Should Be Equal    ${cur}[required]    ${exp}[required]
-                    END
-                    BREAK
+    ${dicts}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='TypedDict']
+    Element Attribute Should Be    ${dicts}[${index}]     name   ${name}
+    Element Text Should Be    ${dicts}[${index}]     ${doc}    xpath=doc
+    ${items}=    Get Elements    ${dicts}[${index}]    xpath=items/item
+    FOR   ${exp_item}    IN    @{exp_items}
+        ${exp}=    Evaluate    json.loads($exp_item)
+        FOR    ${item}    IN    @{items}
+            ${cur}=    Get Element Attributes    ${item}
+            IF    $cur['key'] == $exp['key']
+                Should Be Equal    ${cur}[key]     ${exp}[key]
+                Should Be Equal    ${cur}[type]    ${exp}[type]
+                IF    'required' in $exp
+                    Should Be Equal    ${cur}[required]    ${exp}[required]
                 END
+                BREAK
             END
         END
     END
 
 DataType Custom Should Be
     [Arguments]    ${index}    ${name}    ${doc}
-    ${customs}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='Custom']
-    Element Attribute Should Be    ${customs}[${index}]     name      ${name}
-    Element Text Should Be         ${customs}[${index}]     ${doc}    xpath=doc
+    ${types}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='Custom']
+    Element Attribute Should Be    ${types}[${index}]     name      ${name}
+    Element Text Should Be         ${types}[${index}]     ${doc}    xpath=doc
 
 DataType Standard Should Be
     [Arguments]    ${index}    ${name}    ${doc}
-    ${customs}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='Standard']
-    Element Attribute Should Be    ${customs}[${index}]     name       ${name}
-    Element Text Should Match      ${customs}[${index}]     ${doc}*    xpath=doc
+    ${types}=   Get Elements    ${LIBDOC}   xpath=typedocs/type[@type='Standard']
+    Element Attribute Should Be    ${types}[${index}]     name       ${name}
+    Element Text Should Match      ${types}[${index}]     ${doc}*    xpath=doc
 
 Usages Should Be
     [Arguments]    ${index}    ${type}    ${name}    @{expected}

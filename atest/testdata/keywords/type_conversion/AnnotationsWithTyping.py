@@ -1,23 +1,44 @@
-from typing import (Any, Dict, List, Mapping, MutableMapping, MutableSet, MutableSequence,
-                    Set, Sequence, Tuple, Union)
-try:
-    from typing_extensions import TypedDict
-except ImportError:
-    from typing import TypedDict
+import sys
+from typing import (Any, Dict, List, Mapping, MutableMapping, MutableSet,
+                    MutableSequence, Set, Sequence, Tuple, TypedDict, Union)
 
-from robot.api.deco import not_keyword
+if sys.version_info < (3, 9):
+    from typing_extensions import TypedDict as TypedDictWithRequiredKeys
+else:
+    TypedDictWithRequiredKeys = TypedDict
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired, Required
+else:
+    from typing import NotRequired, Required
 
 
-TypedDict = not_keyword(TypedDict)
+TypedDict.robot_not_keyword = True
 
 
-class Point2D(TypedDict):
+class Point2D(TypedDictWithRequiredKeys):
     x: int
     y: int
 
 
 class Point(Point2D, total=False):
     z: int
+
+
+class NotRequiredAnnotation(TypedDict):
+    x: int
+    y: 'int | float'
+    z: NotRequired[int]
+
+
+class RequiredAnnotation(TypedDict, total=False):
+    x: Required[int]
+    y: Required['int | float']
+    z: int
+
+
+class Stringified(TypedDict):
+    a: 'int'
+    b: 'int | float'
 
 
 class BadIntMeta(type(int)):
@@ -97,6 +118,18 @@ def typeddict_with_optional(argument: Point, expected=None):
     _validate_type(argument, expected)
 
 
+def not_required(argument: NotRequiredAnnotation, expected=None):
+    _validate_type(argument, expected)
+
+
+def required(argument: RequiredAnnotation, expected=None):
+    _validate_type(argument, expected)
+
+
+def stringified_typeddict(argument: Stringified, expected=None):
+    _validate_type(argument, expected)
+
+
 def set_(argument: Set, expected=None):
     _validate_type(argument, expected)
 
@@ -137,13 +170,20 @@ def not_liking_isinstance(argument: BadInt, expected=None):
     _validate_type(argument, expected)
 
 
-def _validate_type(argument, expected, same=False):
-    if isinstance(expected, str):
+def _validate_type(argument, expected, same=False, evaluate=True):
+    if isinstance(expected, str) and evaluate:
         expected = eval(expected)
     if argument != expected or type(argument) != type(expected):
         atype = type(argument).__name__
         etype = type(expected).__name__
         raise AssertionError(f'{argument!r} ({atype}) != {expected!r} ({etype})')
+    if isinstance(argument, (list, tuple)):
+        for a, e in zip(argument, expected):
+            _validate_type(a, e, same, evaluate=False)
+    if isinstance(argument, dict):
+        for a, e in zip(argument, expected):
+            _validate_type(a, e, same, evaluate=False)
+            _validate_type(argument[a], expected[e], same, evaluate=False)
     if same and argument is not expected:
         raise AssertionError(f'{argument} (id: {id(argument)}) is not same '
                              f'as {expected} (id: {id(expected)})')

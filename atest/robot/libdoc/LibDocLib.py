@@ -21,7 +21,7 @@ class LibDocLib:
     def __init__(self, interpreter=None):
         self.interpreter = interpreter
         self.xml_schema = XMLSchema(str(ROOT/'doc/schema/libdoc.xsd'))
-        with open(ROOT/'doc/schema/libdoc.json') as f:
+        with open(ROOT/'doc/schema/libdoc.json', encoding='UTF-8') as f:
             self.json_schema = Draft202012Validator(json.load(f))
 
     @property
@@ -60,19 +60,28 @@ class LibDocLib:
         self.xml_schema.validate(path)
 
     def validate_json_spec(self, path):
-        with open(path) as f:
+        with open(path, encoding='UTF-8') as f:
             self.json_schema.validate(json.load(f))
 
     def get_repr_from_arg_model(self, model):
-        type_info = TypeInfo.from_type_hint(model['type']) if model['type'] else None
         return str(ArgInfo(kind=model['kind'],
                            name=model['name'],
-                           type=type_info,
-                           default=model['default'] or NOT_SET))
+                           type=self._get_type_info(model['type']),
+                           default=self._get_default(model['default'])))
 
     def get_repr_from_json_arg_model(self, model):
-        type_info = TypeInfo.from_type_hint(model['type']) if model['type'] else None
         return str(ArgInfo(kind=model['kind'],
                            name=model['name'],
-                           type=type_info,
-                           default=model['defaultValue'] or NOT_SET))
+                           type=self._get_type_info(model['type']),
+                           default=self._get_default(model['defaultValue'])))
+
+    def _get_type_info(self, data):
+        if not data:
+            return None
+        if isinstance(data, str):
+            return TypeInfo.from_string(data)
+        nested = [self._get_type_info(n) for n in data.get('nested', ())]
+        return TypeInfo(data['name'], None, nested=nested or None)
+
+    def _get_default(self, data):
+        return data if data is not None else NOT_SET

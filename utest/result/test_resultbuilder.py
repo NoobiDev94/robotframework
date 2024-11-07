@@ -11,9 +11,9 @@ from robot.utils.asserts import assert_equal, assert_false, assert_true, assert_
 
 
 CURDIR = Path(__file__).resolve().parent
-GOLDEN_XML = (CURDIR / 'golden.xml').read_text()
-GOLDEN_XML_TWICE = (CURDIR / 'goldenTwice.xml').read_text()
-SUITE_TEARDOWN_FAILED = (CURDIR / 'suite_teardown_failed.xml').read_text()
+GOLDEN_XML = (CURDIR / 'golden.xml').read_text(encoding='UTF-8')
+GOLDEN_XML_TWICE = (CURDIR / 'goldenTwice.xml').read_text(encoding='UTF-8')
+SUITE_TEARDOWN_FAILED = (CURDIR / 'suite_teardown_failed.xml').read_text(encoding='UTF-8')
 
 
 class TestBuildingSuiteExecutionResult(unittest.TestCase):
@@ -23,11 +23,18 @@ class TestBuildingSuiteExecutionResult(unittest.TestCase):
         self.suite = self.result.suite
         self.test = self.suite.tests[0]
 
+    def test_result_has_generation_time(self):
+        assert_equal(self.result.generation_time, datetime(2023, 9, 8, 12, 1, 47, 906104))
+        result = ExecutionResult("<robot><suite/></robot>")
+        assert_equal(result.generation_time, None)
+        result = ExecutionResult("<robot generated='20111024 13:41:20.873'><suite/></robot>")
+        assert_equal(result.generation_time, datetime(2011, 10, 24, 13, 41, 20, 873000))
+
     def test_suite_is_built(self):
         assert_equal(self.suite.source, Path('normal.html'))
         assert_equal(self.suite.name, 'Normal')
         assert_equal(self.suite.doc, 'Normal test cases')
-        assert_equal(self.suite.metadata, {'Something': 'My Value'})
+        assert_equal(self.suite.metadata, {'Something': 'My Value', 'Nön-ÄSCÏÏ': '🤖'})
         assert_equal(self.suite.status, 'PASS')
         assert_equal(self.suite.starttime, '20111024 13:41:20.873')
         assert_equal(self.suite.endtime, '20111024 13:41:20.952')
@@ -39,7 +46,7 @@ class TestBuildingSuiteExecutionResult(unittest.TestCase):
         assert_equal(self.test.doc, 'Test case documentation')
         assert_equal(self.test.timeout, None)
         assert_equal(list(self.test.tags), ['t1'])
-        assert_equal(len(self.test.body), 4)
+        assert_equal(len(self.test.body), 6)
         assert_equal(self.test.status, 'PASS')
         assert_equal(self.test.starttime, '20111024 13:41:20.925')
         assert_equal(self.test.endtime, '20111024 13:41:20.934')
@@ -124,18 +131,26 @@ class TestBuildingSuiteExecutionResult(unittest.TestCase):
         class NonVisitingSuite(TestSuite):
             def visit(self, visitor):
                 pass
-        result = Result(root_suite=NonVisitingSuite())
+        result = Result(suite=NonVisitingSuite())
         builder = ExecutionResultBuilder(StringIO(GOLDEN_XML), include_keywords=False)
         builder.build(result)
         assert_equal(len(result.suite.tests[0].body), 0)
 
-    def test_rpa(self):
+    def test_rpa_with_xml(self):
         rpa_false = GOLDEN_XML
-        self._validate_rpa(ExecutionResult(StringIO(rpa_false)), False)
-        self._validate_rpa(ExecutionResult(StringIO(rpa_false), rpa=True), True)
-        rpa_true = GOLDEN_XML.replace('rpa="false"', 'rpa="true"')
-        self._validate_rpa(ExecutionResult(StringIO(rpa_true)), True)
-        self._validate_rpa(ExecutionResult(StringIO(rpa_true), rpa=False), False)
+        self._validate_rpa(ExecutionResult(rpa_false), False)
+        self._validate_rpa(ExecutionResult(rpa_false, rpa=True), True)
+        rpa_true = rpa_false.replace('rpa="false"', 'rpa="true"')
+        self._validate_rpa(ExecutionResult(rpa_true), True)
+        self._validate_rpa(ExecutionResult(rpa_true, rpa=False), False)
+
+    def test_rpa_with_json(self):
+        rpa_false = ExecutionResult(GOLDEN_XML).to_json()
+        self._validate_rpa(ExecutionResult(rpa_false), False)
+        self._validate_rpa(ExecutionResult(rpa_false, rpa=True), True)
+        rpa_true = rpa_false.replace('"rpa":false', '"rpa":true')
+        self._validate_rpa(ExecutionResult(rpa_true), True)
+        self._validate_rpa(ExecutionResult(rpa_true, rpa=False), False)
 
     def _validate_rpa(self, result, expected):
         assert_equal(result.rpa, expected)
@@ -351,7 +366,7 @@ class TestUsingPathlibPath(unittest.TestCase):
         assert_equal(suite.source, Path('normal.html'))
         assert_equal(suite.name, 'Normal')
         assert_equal(suite.doc, 'Normal test cases')
-        assert_equal(suite.metadata, {'Something': 'My Value'})
+        assert_equal(suite.metadata, {'Something': 'My Value', 'Nön-ÄSCÏÏ': '🤖'})
         assert_equal(suite.status, 'PASS')
         assert_equal(suite.starttime, '20111024 13:41:20.873')
         assert_equal(suite.endtime, '20111024 13:41:20.952')
@@ -364,7 +379,7 @@ class TestUsingPathlibPath(unittest.TestCase):
         assert_equal(test.doc, 'Test case documentation')
         assert_equal(test.timeout, None)
         assert_equal(list(test.tags), ['t1'])
-        assert_equal(len(test.body), 4)
+        assert_equal(len(test.body), 6)
         assert_equal(test.status, 'PASS')
         assert_equal(test.starttime, '20111024 13:41:20.925')
         assert_equal(test.endtime, '20111024 13:41:20.934')

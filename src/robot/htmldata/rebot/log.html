@@ -22,10 +22,11 @@
 <script type="text/javascript" src="util.js"></script>
 <script type="text/javascript" src="testdata.js"></script>
 <script type="text/javascript" src="view.js"></script>
+<script type="text/javascript" src="../common/storage.js"></script>
 <!-- JS MODEL --><script type="text/javascript" src="../testdata/data.js"></script>
 <title></title>
 </head>
-<body>
+<body data-theme="dark">
 <div id="javascript-disabled">
   <h1>Opening Robot Framework log failed</h1>
   <ul>
@@ -35,12 +36,13 @@
   </ul>
 </div>
 <script type="text/javascript">removeJavaScriptDisabledWarning();</script>
-
 <div id="header"></div>
 <div id="statistics-container"></div>
 
 <script type="text/javascript">
 $(document).ready(function() {
+    storage.init();
+    theme.init(storage);
     try {
         var topsuite = window.testdata.suite();
     } catch (error) {
@@ -48,6 +50,7 @@ $(document).ready(function() {
         return;
     }
     initLayout(topsuite.name, 'Log');
+    theme.reflectPreference();
     addStatistics();
     addErrors();
     addExecutionLog(topsuite);
@@ -88,25 +91,6 @@ function drawErrorsRecursively(errors, target) {
         // Errors may have moved scroll position. Resetting location re-scrolls.
         if (window.location.hash)
             window.location.replace(window.location.hash);
-        highlightLinkTarget();
-    }
-}
-
-function highlightLinkTarget() {
-    if (window.location.hash) {
-        var target = $(window.location.hash);
-        highlight(target);
-    }
-}
-
-function highlight(element, color) {
-    if (color === undefined)
-        color = 242;
-    if (color < 255) {
-        element.css({'background-color': 'rgb('+color+','+color+','+color+')'});
-        setTimeout(function () { highlight(element, color+1); }, 300);
-    } else {
-        element.css({'background-color': ''});
     }
 }
 
@@ -124,7 +108,6 @@ function makeElementVisible(id) {
             expandFailed(window.testdata.findLoaded(util.last(ids)));
             window.location.hash = id;
             document.getElementById(id).scrollIntoView();
-            highlightLinkTarget();
         }
     });
 }
@@ -386,6 +369,7 @@ function addExecutionLog(main) {
   <div id="log-level-selector">
   Log level:
     <select onchange="logLevelSelected(this.options[selectedIndex].value)">
+      <option value="3">WARN</option>
       <option value="2">INFO</option>
       <option value="1">DEBUG</option>
       {{if showTrace()}}<option value="0">TRACE</option>{{/if}}

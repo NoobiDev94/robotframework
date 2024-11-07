@@ -43,8 +43,8 @@ format. Log_, report_ and xUnit_ files are typically generated based on them,
 and they can also be combined and otherwise post-processed with Rebot_.
 
 .. tip:: Generating report_ and xUnit_ files as part of test execution
-         does not require processing output files. Disabling log_ generation
-         when running tests can thus save memory.
+         does not require processing output files after execution. Disabling
+         log_ generation when running tests can thus save memory.
 
 The command line option :option:`--output (-o)` determines the path where
 the output file is created relative to the `output directory`_. The default
@@ -57,6 +57,32 @@ It is possible to disable creation of the output file when running tests by
 giving a special value `NONE` to the :option:`--output` option. If no outputs
 are needed, they should all be explicitly disabled using
 `--output NONE --report NONE --log NONE`.
+
+The XML output file structure is documented in the :file:`result.xsd` `schema file`_.
+
+.. note:: Starting from Robot Framework 7.0, Rebot_ can read and write
+          `JSON output files`_. The plan is to enhance the support for
+          JSON output files in the future so that they could be created
+          already during execution. For more details see issue `#3423`__.
+
+__ https://github.com/robotframework/robotframework/issues/3423
+
+
+Legacy output file format
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There were some `backwards incompatible changes`__ to the output file format in
+Robot Framework 7.0. To make it possible to use new Robot Framework versions
+with external tools that are not yet updated to support the new format, there is
+a :option:`--legacyoutput` option that produces output files that are compatible
+with Robot Framework 6.x and earlier. Robot Framework itself can process output
+files both in the old and in the new formats.
+
+We hope that external tools are updated soon, but we plan to support this
+option at least until Robot Framework 8.0. If you encounter tools that are
+not compatible, please inform the tool developers about changes.
+
+__ https://github.com/robotframework/robotframework/blob/master/doc/releasenotes/rf-7.0.rst#changes-to-output-xml
 
 Log file
 ~~~~~~~~
@@ -323,6 +349,10 @@ Technically the test data related to each test case is saved into
 a JavaScript file in the same folder as the main log file. These files have
 names such as :file:`log-42.js` where :file:`log` is the base name of the
 main log file and :file:`42` is an incremented index.
+
+The JavaScript files are saved to the same directory where the `log file`_
+itself is saved. It is the common `output directory`_ by default, but
+it can be changed with the :option:`--log` command line option.
 
 .. note:: When copying the log files, you need to copy also all the
           :file:`log-*.js` files or some information will be missing.

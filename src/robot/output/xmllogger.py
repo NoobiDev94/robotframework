@@ -15,9 +15,9 @@
 
 from datetime import datetime
 
-from robot.utils import NullMarkupWriter, safe_str, XmlWriter
+from robot.utils import NullMarkupWriter, XmlWriter
 from robot.version import get_full_version
-from robot.result.visitor import ResultVisitor
+from robot.result import Keyword, TestCase, TestSuite, ResultVisitor
 
 from .loggerapi import LoggerApi
 from .loggerhelper import IsLogged
@@ -25,22 +25,14 @@ from .loggerhelper import IsLogged
 
 class XmlLoggerAdapter(LoggerApi):
 
-    def __init__(self, path, log_level='TRACE', rpa=False, generator='Robot'):
-        self._xml_logger = XmlLogger(path, log_level, rpa, generator)
-        self._flat_xml_logger = None
-        self.logger = self._xml_logger
+    def __init__(self, path, log_level='TRACE', rpa=False, generator='Robot',
+                 legacy_output=False):
+        logger = XmlLogger if not legacy_output else LegacyXmlLogger
+        self.logger = logger(path, log_level, rpa, generator)
 
     @property
-    def flat_xml_logger(self):
-        if self._flat_xml_logger is None:
-            self._flat_xml_logger = FlatXmlLogger(self.logger)
-        return self._flat_xml_logger
-
-    def flatten(self, flatten):
-        if flatten:
-            self.logger = self.flat_xml_logger
-        else:
-            self.logger = self._xml_logger
+    def flatten_level(self):
+        return self.logger.flatten_level
 
     def close(self):
         self.logger.close()
@@ -153,21 +145,30 @@ class XmlLoggerAdapter(LoggerApi):
 
 class XmlLogger(ResultVisitor):
 
-    def __init__(self, path, log_level='TRACE', rpa=False, generator='Robot'):
+    def __init__(self, output, log_level='TRACE', rpa=False, generator='Robot',
+                 suite_only=False):
         self._log_message_is_logged = IsLogged(log_level)
         self._error_message_is_logged = IsLogged('WARN')
-        self._writer = self._get_writer(path, rpa, generator)
+        # `_writer` is set to NullMarkupWriter when flattening, `_xml_writer` is not.
+        self._writer = self._xml_writer = self._get_writer(output, rpa, generator,
+                                                           suite_only)
+        self.flatten_level = 0
         self._errors = []
 
-    def _get_writer(self, path, rpa, generator):
-        if not path:
+    def _get_writer(self, output, rpa, generator, suite_only):
+        if not output:
             return NullMarkupWriter()
-        writer = XmlWriter(path, write_empty=False, usage='output')
-        writer.start('robot', {'generator': get_full_version(generator),
-                               'generated': datetime.now().isoformat(),
-                               'rpa': 'true' if rpa else 'false',
-                               'schemaversion': '5'})
+        writer = XmlWriter(output, write_empty=False, usage='output',
+                           preamble=not suite_only)
+        if not suite_only:
+            writer.start('robot', self._get_start_attrs(rpa, generator))
         return writer
+
+    def _get_start_attrs(self, rpa, generator):
+        return {'generator': get_full_version(generator),
+                'generated': datetime.now().isoformat(),
+                'rpa': 'true' if rpa else 'false',
+                'schemaversion': '5'}
 
     def close(self):
         self.start_errors()
@@ -189,26 +190,39 @@ class XmlLogger(ResultVisitor):
             self._write_message(msg)
 
     def _write_message(self, msg):
+        # Discard messages explicitly set to `None` by listeners.
+        if msg.message is None:
+            return
         attrs = {'time': msg.timestamp.isoformat() if msg.timestamp else None,
                  'level': msg.level}
         if msg.html:
             attrs['html'] = 'true'
-        self._writer.element('msg', msg.message, attrs)
+        # Use `_xml_writer`, not `_writer`, to write messages also when flattening.
+        self._xml_writer.element('msg', msg.message, attrs)
 
     def start_keyword(self, kw):
+        self._writer.start('kw', self._get_start_keyword_attrs(kw))
+        if kw.tags.robot('flatten'):
+            self.flatten_level += 1
+            self._writer = NullMarkupWriter()
+
+    def _get_start_keyword_attrs(self, kw):
         attrs = {'name': kw.name, 'owner': kw.owner}
         if kw.type != 'KEYWORD':
             attrs['type'] = kw.type
         if kw.source_name:
             attrs['source_name'] = kw.source_name
-        self._writer.start('kw', attrs)
-        self._write_list('var', kw.assign)
-        self._write_list('arg', [safe_str(a) for a in kw.args])
-        self._write_list('tag', kw.tags)
-        # Must be after tags to allow adding message when using --flattenkeywords.
-        self._writer.element('doc', kw.doc)
+        return attrs
 
     def end_keyword(self, kw):
+        if kw.tags.robot('flatten'):
+            self.flatten_level -= 1
+            if self.flatten_level == 0:
+                self._writer = self._xml_writer
+        self._write_list('var', kw.assign)
+        self._write_list('arg', [str(a) for a in kw.args])
+        self._write_list('tag', kw.tags)
+        self._writer.element('doc', kw.doc)
         if kw.timeout:
             self._writer.element('timeout', attrs={'value': str(kw.timeout)})
         self._write_status(kw)
@@ -234,21 +248,21 @@ class XmlLogger(ResultVisitor):
                                    'start': for_.start,
                                    'mode': for_.mode,
                                    'fill': for_.fill})
+
+    def end_for(self, for_):
         for name in for_.assign:
             self._writer.element('var', name)
         for value in for_.values:
             self._writer.element('value', value)
-
-    def end_for(self, for_):
         self._write_status(for_)
         self._writer.end('for')
 
     def start_for_iteration(self, iteration):
         self._writer.start('iter')
-        for name, value in iteration.assign.items():
-            self._writer.element('var', value, {'name': name})
 
     def end_for_iteration(self, iteration):
+        for name, value in iteration.assign.items():
+            self._writer.element('var', value, {'name': name})
         self._write_status(iteration)
         self._writer.end('iter')
 
@@ -300,19 +314,19 @@ class XmlLogger(ResultVisitor):
         if var.separator is not None:
             attr['separator'] = var.separator
         self._writer.start('variable', attr, write_empty=True)
-        for val in var.value:
-            self._writer.element('var', val)
 
     def end_var(self, var):
+        for val in var.value:
+            self._writer.element('var', val)
         self._write_status(var)
         self._writer.end('variable')
 
     def start_return(self, return_):
         self._writer.start('return')
-        for value in return_.values:
-            self._writer.element('value', value)
 
     def end_return(self, return_):
+        for value in return_.values:
+            self._writer.element('value', value)
         self._write_status(return_)
         self._writer.end('return')
 
@@ -332,10 +346,10 @@ class XmlLogger(ResultVisitor):
 
     def start_error(self, error):
         self._writer.start('error')
-        for value in error.values:
-            self._writer.element('value', value)
 
     def end_error(self, error):
+        for value in error.values:
+            self._writer.element('value', value)
         self._write_status(error)
         self._writer.end('error')
 
@@ -405,96 +419,46 @@ class XmlLogger(ResultVisitor):
     def _write_status(self, item):
         attrs = {'status': item.status,
                  'start': item.start_time.isoformat() if item.start_time else None,
-                 'elapsed': str(item.elapsed_time.total_seconds())}
+                 'elapsed': format(item.elapsed_time.total_seconds(), 'f')}
         self._writer.element('status', item.message, attrs)
 
 
-class FlatXmlLogger(XmlLogger):
+class LegacyXmlLogger(XmlLogger):
 
-    def __init__(self, real_xml_logger):
-        super().__init__(None)
-        self._writer = real_xml_logger._writer
+    def _get_start_attrs(self, rpa, generator):
+        return {'generator': get_full_version(generator),
+                'generated': self._datetime_to_timestamp(datetime.now()),
+                'rpa': 'true' if rpa else 'false',
+                'schemaversion': '4'}
 
-    def start_keyword(self, kw):
-        pass
+    def _datetime_to_timestamp(self, dt):
+        if dt is None:
+            return None
+        return dt.isoformat(' ', timespec='milliseconds').replace('-', '')
 
-    def end_keyword(self, kw):
-        pass
+    def _get_start_keyword_attrs(self, kw):
+        attrs = {'name': kw.kwname, 'library': kw.libname}
+        if kw.type != 'KEYWORD':
+            attrs['type'] = kw.type
+        if kw.source_name:
+            attrs['sourcename'] = kw.source_name
+        return attrs
 
-    def start_for(self, for_):
-        pass
+    def _write_status(self, item):
+        attrs = {'status': item.status,
+                 'starttime': self._datetime_to_timestamp(item.start_time),
+                 'endtime': self._datetime_to_timestamp(item.end_time)}
+        if (isinstance(item, (TestSuite, TestCase))
+                or isinstance(item, Keyword) and item.type == 'TEARDOWN'):
+            message = item.message
+        else:
+            message = ''
+        self._writer.element('status', message, attrs)
 
-    def end_for(self, for_):
-        pass
-
-    def start_for_iteration(self, iteration):
-        pass
-
-    def end_for_iteration(self, iteration):
-        pass
-
-    def start_if(self, if_):
-        pass
-
-    def end_if(self, if_):
-        pass
-
-    def start_if_branch(self, branch):
-        pass
-
-    def end_if_branch(self, branch):
-        pass
-
-    def start_try(self, root):
-        pass
-
-    def end_try(self, root):
-        pass
-
-    def start_try_branch(self, branch):
-        pass
-
-    def end_try_branch(self, branch):
-        pass
-
-    def start_while(self, while_):
-        pass
-
-    def end_while(self, while_):
-        pass
-
-    def start_while_iteration(self, iteration):
-        pass
-
-    def end_while_iteration(self, iteration):
-        pass
-
-    def start_var(self, var):
-        pass
-
-    def end_var(self, var):
-        pass
-
-    def start_break(self, break_):
-        pass
-
-    def end_break(self, break_):
-        pass
-
-    def start_continue(self, continue_):
-        pass
-
-    def end_continue(self, continue_):
-        pass
-
-    def start_return(self, return_):
-        pass
-
-    def end_return(self, return_):
-        pass
-
-    def start_error(self, error):
-        pass
-
-    def end_error(self, error):
-        pass
+    def _write_message(self, msg):
+        ts = self._datetime_to_timestamp(msg.timestamp) if msg.timestamp else None
+        attrs = {'timestamp':  ts, 'level': msg.level}
+        if msg.html:
+            attrs['html'] = 'true'
+        # Use `_xml_writer`, not `_writer` to write messages also when flattening.
+        self._xml_writer.element('msg', msg.message, attrs)

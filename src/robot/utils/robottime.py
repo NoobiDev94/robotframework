@@ -86,7 +86,7 @@ def _time_string_to_secs(timestr):
     timestr = _normalize_timestr(timestr)
     if not timestr:
         return None
-    nanos = micros = millis = secs = mins = hours = days = 0
+    nanos = micros = millis = secs = mins = hours = days = weeks = 0
     if timestr[0] == '-':
         sign = -1
         timestr = timestr[1:]
@@ -97,30 +97,32 @@ def _time_string_to_secs(timestr):
         try:
             if   c == 'n': nanos  = float(''.join(temp)); temp = []
             elif c == 'u': micros = float(''.join(temp)); temp = []
-            elif c == 'x': millis = float(''.join(temp)); temp = []
+            elif c == 'M': millis = float(''.join(temp)); temp = []
             elif c == 's': secs   = float(''.join(temp)); temp = []
             elif c == 'm': mins   = float(''.join(temp)); temp = []
             elif c == 'h': hours  = float(''.join(temp)); temp = []
             elif c == 'd': days   = float(''.join(temp)); temp = []
+            elif c == 'w': weeks  = float(''.join(temp)); temp = []
             else: temp.append(c)
         except ValueError:
             return None
     if temp:
         return None
     return sign * (nanos/1E9 + micros/1E6 + millis/1000 + secs +
-                   mins*60 + hours*60*60 + days*60*60*24)
+                   mins*60 + hours*60*60 + days*60*60*24 + weeks*60*60*24*7)
 
 
 def _normalize_timestr(timestr):
     timestr = normalize(timestr)
     for specifier, aliases in [('n', ['nanosecond', 'ns']),
                                ('u', ['microsecond', 'us', 'μs']),
-                               ('x', ['millisecond', 'millisec', 'millis',
+                               ('M', ['millisecond', 'millisec', 'millis',
                                       'msec', 'ms']),
                                ('s', ['second', 'sec']),
                                ('m', ['minute', 'min']),
                                ('h', ['hour']),
-                               ('d', ['day'])]:
+                               ('d', ['day']),
+                               ('w', ['week'])]:
         plural_aliases = [a+'s' for a in aliases if not a.endswith('s')]
         for alias in plural_aliases + aliases:
             if alias in timestr:

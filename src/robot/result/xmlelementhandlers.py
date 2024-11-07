@@ -49,8 +49,6 @@ class ElementHandler:
 
     def get_child_handler(self, tag):
         if tag not in self.children:
-            if not self.tag:
-                raise DataError(f"Incompatible root element '{tag}'.")
             raise DataError(f"Incompatible child element '{tag}' for '{self.tag}'.")
         return self.element_handlers[tag]
 
@@ -62,6 +60,9 @@ class ElementHandler:
 
     def _legacy_timestamp(self, elem, attr_name):
         ts = elem.get(attr_name)
+        return self._parse_legacy_timestamp(ts)
+
+    def _parse_legacy_timestamp(self, ts):
         if ts == 'N/A' or not ts:
             return None
         ts = ts.ljust(24, '0')
@@ -70,7 +71,13 @@ class ElementHandler:
 
 
 class RootHandler(ElementHandler):
-    children = frozenset(('robot',))
+    children = frozenset(('robot', 'suite'))
+
+    def get_child_handler(self, tag):
+        try:
+            return super().get_child_handler(tag)
+        except DataError:
+            raise DataError(f"Incompatible root element '{tag}'.")
 
 
 @ElementHandler.register
@@ -79,11 +86,19 @@ class RobotHandler(ElementHandler):
     children = frozenset(('suite', 'statistics', 'errors'))
 
     def start(self, elem, result):
-        generator = elem.get('generator', 'unknown').split()[0].upper()
-        result.generated_by_robot = generator == 'ROBOT'
+        result.generator = elem.get('generator', 'unknown')
+        result.generation_time = self._parse_generation_time(elem.get('generated'))
         if result.rpa is None:
             result.rpa = elem.get('rpa', 'false') == 'true'
         return result
+
+    def _parse_generation_time(self, generated):
+        if not generated:
+            return None
+        try:
+            return datetime.fromisoformat(generated)
+        except ValueError:
+            return self._parse_legacy_timestamp(generated)
 
 
 @ElementHandler.register

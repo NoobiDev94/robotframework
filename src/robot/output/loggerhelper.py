@@ -19,7 +19,7 @@ from typing import Callable, Literal
 
 from robot.errors import DataError
 from robot.model import Message as BaseMessage, MessageLevel
-from robot.utils import console_encode, safe_str
+from robot.utils import console_encode
 
 
 LEVELS = {
@@ -40,8 +40,9 @@ def write_to_console(msg, newline=True, stream='stdout'):
     if newline:
         msg += '\n'
     stream = sys.__stdout__ if stream.lower() != 'stderr' else sys.__stderr__
-    stream.write(console_encode(msg, stream=stream))
-    stream.flush()
+    if stream:
+        stream.write(console_encode(msg, stream=stream))
+        stream.flush()
 
 
 class AbstractLogger:
@@ -89,9 +90,22 @@ class AbstractLogger:
 
 
 class Message(BaseMessage):
+    """Represents message logged during execution.
+
+    Most messages are logged by libraries. They typically log strings, but
+    possible non-string items have been converted to strings already before
+    they end up here.
+
+    In addition to strings, Robot Framework itself logs also callables to make
+    constructing messages that are not typically needed lazy. Such messages are
+    resolved when they are accessed.
+
+    Listeners can remove messages by setting the `message` attribute to `None`.
+    These messages are not written to the output.xml at all.
+    """
     __slots__ = ['_message']
 
-    def __init__(self, message: 'str|Callable[[], str]',
+    def __init__(self, message: 'str|None|Callable[[], str|None]',
                  level: 'MessageLevel|PseudoLevel' = 'INFO',
                  html: bool = False,
                  timestamp: 'datetime|str|None' = None):
@@ -109,22 +123,19 @@ class Message(BaseMessage):
         raise DataError(f"Invalid log level '{level}'.")
 
     @property
-    def message(self) -> str:
+    def message(self) -> 'str|None':
         self.resolve_delayed_message()
         return self._message
 
     @message.setter
-    def message(self, message: 'str|Callable[[], str]'):
-        if not callable(message):
-            if not isinstance(message, str):
-                message = safe_str(message)
-            if '\r\n' in message:
-                message = message.replace('\r\n', '\n')
+    def message(self, message: 'str|None|Callable[[], str|None]'):
+        if isinstance(message, str) and '\r\n' in message:
+            message = message.replace('\r\n', '\n')
         self._message = message
 
     def resolve_delayed_message(self):
         if callable(self._message):
-            self._message = self._message()
+            self.message = self._message()
 
 
 class IsLogged:
@@ -141,41 +152,13 @@ class IsLogged:
         self.__init__(level)
         return old
 
-    def _level_to_int(self, level):
+    @classmethod
+    def validate_level(cls, level):
+        cls._level_to_int(level)
+
+    @classmethod
+    def _level_to_int(cls, level):
         try:
             return LEVELS[level.upper()]
         except KeyError:
-            raise DataError("Invalid log level '%s'." % level)
-
-
-class AbstractLoggerProxy:
-    _methods = None
-    _no_method = lambda *args: None
-
-    def __init__(self, logger, method_names=None, prefix=None):
-        self.logger = logger
-        for name in method_names or self._methods:
-            # Allow extending classes to implement some of the messages themselves.
-            if hasattr(self, name):
-                if hasattr(logger, name):
-                    continue
-                target = logger
-            else:
-                target = self
-            setattr(target, name, self._get_method(logger, name, prefix))
-
-    def _get_method(self, logger, name, prefix):
-        for method_name in self._get_method_names(name, prefix):
-            if hasattr(logger, method_name):
-                return getattr(logger, method_name)
-        return self._no_method
-
-    def _get_method_names(self, name, prefix):
-        names = [name, self._toCamelCase(name)] if '_' in name else [name]
-        if prefix:
-            names += [prefix + name for name in names]
-        return names
-
-    def _toCamelCase(self, name):
-        parts = name.split('_')
-        return ''.join([parts[0]] + [part.capitalize() for part in parts[1:]])
+            raise DataError(f"Invalid log level '{level}'.")

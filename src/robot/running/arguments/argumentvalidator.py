@@ -26,36 +26,27 @@ if TYPE_CHECKING:
 class ArgumentValidator:
 
     def __init__(self, arg_spec: 'ArgumentSpec'):
-        self.arg_spec = arg_spec
+        self.spec = arg_spec
 
     def validate(self, positional, named, dryrun=False):
         named = set(name for name, value in named)
         if dryrun and (any(is_list_variable(arg) for arg in positional) or
                        any(is_dict_variable(arg) for arg in named)):
             return
-        self._validate_no_multiple_values(positional, named, self.arg_spec)
-        self._validate_no_positional_only_as_named(named, self.arg_spec)
-        self._validate_positional_limits(positional, named, self.arg_spec)
-        self._validate_no_mandatory_missing(positional, named, self.arg_spec)
-        self._validate_no_named_only_missing(named, self.arg_spec)
-        self._validate_no_extra_named(named, self.arg_spec)
+        self._validate_no_multiple_values(positional, named, self.spec)
+        self._validate_positional_limits(positional, named, self.spec)
+        self._validate_no_mandatory_missing(positional, named, self.spec)
+        self._validate_no_named_only_missing(named, self.spec)
+        self._validate_no_extra_named(named, self.spec)
 
     def _validate_no_multiple_values(self, positional, named, spec):
-        for name in spec.positional[:len(positional)]:
+        for name in spec.positional[:len(positional)-len(spec.embedded)]:
             if name in named and name not in spec.positional_only:
                 self._raise_error(f"got multiple values for argument '{name}'")
 
     def _raise_error(self, message):
-        spec = self.arg_spec
-        name = f"'{spec.name}' " if spec.name else ''
-        raise DataError(f"{spec.type.capitalize()} {name}{message}.")
-
-    def _validate_no_positional_only_as_named(self, named, spec):
-        if not spec.var_named:
-            for name in named:
-                if name in spec.positional_only:
-                    self._raise_error(f"does not accept argument '{name}' as named "
-                                      f"argument")
+        name = f"'{self.spec.name}' " if self.spec.name else ''
+        raise DataError(f"{self.spec.type.capitalize()} {name}{message}.")
 
     def _validate_positional_limits(self, positional, named, spec):
         count = len(positional) + self._named_positionals(named, spec)
@@ -66,15 +57,18 @@ class ArgumentValidator:
         return sum(1 for n in named if n in spec.positional_or_named)
 
     def _raise_wrong_count(self, count, spec):
-        if spec.minargs == spec.maxargs:
-            expected = f'{spec.minargs} argument{s(spec.minargs)}'
+        embedded = len(spec.embedded)
+        minargs = spec.minargs - embedded
+        maxargs = spec.maxargs - embedded
+        if minargs == maxargs:
+            expected = f'{minargs} argument{s(minargs)}'
         elif not spec.var_positional:
-            expected = f'{spec.minargs} to {spec.maxargs} arguments'
+            expected = f'{minargs} to {maxargs} arguments'
         else:
-            expected = f'at least {spec.minargs} argument{s(spec.minargs)}'
+            expected = f'at least {minargs} argument{s(minargs)}'
         if spec.var_named or spec.named_only:
             expected = expected.replace('argument', 'non-named argument')
-        self._raise_error(f"expected {expected}, got {count}")
+        self._raise_error(f"expected {expected}, got {count - embedded}")
 
     def _validate_no_mandatory_missing(self, positional, named, spec):
         for name in spec.positional[len(positional):]:

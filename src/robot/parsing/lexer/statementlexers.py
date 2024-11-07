@@ -62,11 +62,15 @@ class StatementLexer(Lexer, ABC):
         raise NotImplementedError
 
     def _lex_options(self, *names: str, end_index: 'int|None' = None):
+        seen = set()
         for token in reversed(self.statement[:end_index]):
-            if '=' in token.value and token.value.split('=')[0] in names:
-                token.type = Token.OPTION
-            else:
-                break
+            if '=' in token.value:
+                name = token.value.split('=')[0]
+                if name in names and name not in seen:
+                    token.type = Token.OPTION
+                    seen.add(name)
+                    continue
+            break
 
 
 class SingleType(StatementLexer, ABC):
@@ -131,17 +135,19 @@ class ImplicitCommentLexer(CommentLexer):
 
     def input(self, statement: StatementTokens):
         super().input(statement)
-        if len(statement) == 1 and statement[0].value.lower().startswith('language:'):
-            lang = statement[0].value.split(':', 1)[1].strip()
+        if statement[0].value.lower().startswith('language:'):
+            value = ' '.join(token.value for token in statement)
+            lang = value.split(':', 1)[1].strip()
             try:
                 self.ctx.add_language(lang)
             except DataError:
-                statement[0].set_error(
-                    f"Invalid language configuration: "
-                    f"Language '{lang}' not found nor importable as a language module."
-                )
+                for token in statement:
+                    token.set_error(f"Invalid language configuration: "
+                                    f"Language '{lang}' not found nor importable "
+                                    f"as a language module.")
             else:
-                statement[0].type = Token.CONFIG
+                for token in statement:
+                    token.type = Token.CONFIG
 
     def lex(self):
         for token in self.statement:
@@ -230,7 +236,7 @@ class ForHeaderLexer(StatementLexer):
                 token.type = Token.FOR_SEPARATOR
                 separator = normalize_whitespace(token.value)
             else:
-                token.type = Token.ASSIGN
+                token.type = Token.VARIABLE
         if separator == 'IN ENUMERATE':
             self._lex_options('start')
         elif separator == 'IN ZIP':
@@ -303,7 +309,7 @@ class ExceptHeaderLexer(StatementLexer):
                 token.type = Token.AS
                 as_index = index
             elif as_index:
-                token.type = Token.ASSIGN
+                token.type = Token.VARIABLE
             else:
                 token.type = Token.ARGUMENT
         self._lex_options('type', end_index=as_index)
@@ -349,7 +355,7 @@ class VarLexer(StatementLexer):
             name.type = Token.VARIABLE
             for value in values:
                 value.type = Token.ARGUMENT
-            options = ['scope', 'separator'] if name.value[0] == '$' else ['scope']
+            options = ['scope', 'separator'] if name.value[:1] == '$' else ['scope']
             self._lex_options(*options)
 
 

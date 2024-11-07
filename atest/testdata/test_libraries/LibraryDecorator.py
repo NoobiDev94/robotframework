@@ -10,3 +10,21 @@ class LibraryDecorator:
     @keyword
     def decorated_method_is_keyword(self):
         print('Decorated methods are keywords.')
+
+    @staticmethod
+    @keyword
+    def decorated_static_method_is_keyword():
+        print('Decorated static methods are keywords.')
+
+    @classmethod
+    @keyword
+    def decorated_class_method_is_keyword(cls):
+        print('Decorated class methods are keywords.')
+
+
+@library(version='base')
+class DecoratedLibraryToBeExtended:
+
+    @keyword
+    def keyword_in_decorated_base_class(self):
+        pass

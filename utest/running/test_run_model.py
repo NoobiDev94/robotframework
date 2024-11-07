@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 import warnings
+from inspect import getattr_static
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -13,8 +14,7 @@ from robot.model.modelobject import ModelObject
 from robot.parsing import get_resource_model
 from robot.running import (Break, Continue, Error, For, If, IfBranch, Keyword,
                            Return, ResourceFile, TestCase, TestDefaults, TestSuite,
-                           Try, TryBranch, Var, While)
-from robot.running.model import UserKeyword
+                           Try, TryBranch, UserKeyword, Var, Variable, While)
 from robot.utils.asserts import assert_equal, assert_false, assert_not_equal
 
 
@@ -42,7 +42,6 @@ class TestModelTypes(unittest.TestCase):
         assert_not_equal(type(kw), model.Keyword)
 
 
-
 class TestSuiteFromSources(unittest.TestCase):
     path = Path(os.getenv('TEMPDIR') or tempfile.gettempdir(),
                 'test_run_model.robot')
@@ -67,7 +66,7 @@ Keyword
 
     @classmethod
     def setUpClass(cls):
-        with open(cls.path, 'w') as f:
+        with open(cls.path, 'w', encoding='UTF-8') as f:
             f.write(cls.data)
 
     @classmethod
@@ -181,7 +180,8 @@ class TestCopy(unittest.TestCase):
 
     def get_non_property_attrs(self, model1, model2):
         for attr in dir(model1):
-            if 'parent' in attr or isinstance(getattr(type(model1), attr, None), property):
+            if (attr in ('parent', 'owner')
+                    or isinstance(getattr_static(model1, attr, None), property)):
                 continue
             value1 = getattr(model1, attr)
             value2 = getattr(model2, attr)
@@ -210,10 +210,7 @@ class TestCopy(unittest.TestCase):
         if type(value1) is not type(value2):
             return False
         # None, Booleans, small numbers, etc. are singletons.
-        try:
-            return id(value1) == id(copy.deepcopy(value1))
-        except TypeError:  # Got in some cases at least with Python 2.6
-            return True
+        return id(value1) == id(copy.deepcopy(value1))
 
 
 class TestLineNumberAndSource(unittest.TestCase):
@@ -244,17 +241,17 @@ class TestLineNumberAndSource(unittest.TestCase):
             assert_equal(suite.resource.imports[0].directory, source.parent)
 
     def test_variable(self):
-        self._assert_lineno_and_source(self.suite.resource.variables[0], 8)
+        self._assert_lineno_and_source(self.suite.resource.variables[0], 10)
 
     def test_test(self):
-        self._assert_lineno_and_source(self.suite.tests[0], 12)
+        self._assert_lineno_and_source(self.suite.tests[0], 14)
 
     def test_user_keyword(self):
-        self._assert_lineno_and_source(self.suite.resource.keywords[0], 24)
+        self._assert_lineno_and_source(self.suite.resource.keywords[0], 28)
 
     def test_keyword_call(self):
-        self._assert_lineno_and_source(self.suite.tests[0].body[0], 15)
-        self._assert_lineno_and_source(self.suite.resource.keywords[0].body[0], 27)
+        self._assert_lineno_and_source(self.suite.tests[0].body[0], 17)
+        self._assert_lineno_and_source(self.suite.resource.keywords[0].body[0], 31)
 
     def _assert_lineno_and_source(self, item, lineno):
         assert_equal(item.source, self.source)
@@ -265,15 +262,17 @@ class TestToFromDictAndJson(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(CURDIR / '../../doc/schema/running.json') as file:
+        with open(CURDIR / '../../doc/schema/running_suite.json', encoding='UTF-8') as file:
             schema = json.load(file)
         cls.validator = Draft202012Validator(schema=schema)
 
     def test_keyword(self):
         self._verify(Keyword(), name='')
         self._verify(Keyword('Name'), name='Name')
-        self._verify(Keyword('N', 'args', ('${result}',)),
+        self._verify(Keyword('N', 'args', assign=('${result}',)),
                      name='N', args=tuple('args'), assign=('${result}',))
+        self._verify(Keyword('N', ['pos', 'p2'], {'named': 'arg', 'n2': 2}),
+                     name='N', args=('pos', 'p2'), named_args={'named': 'arg', 'n2': 2})
         self._verify(Keyword('Setup', type=Keyword.SETUP, lineno=1),
                      name='Setup', lineno=1)
 
@@ -430,16 +429,24 @@ class TestToFromDictAndJson(unittest.TestCase):
 
     def test_user_keyword(self):
         self._verify(UserKeyword(), name='', body=[])
-        self._verify(UserKeyword('N', ('a',), 'd', 't', ('r',), 't', 1, error='E'),
+        self._verify(UserKeyword('N', ('${a}',), 'd', ('t',), 't', 1, error='E'),
                      name='N',
-                     args=('a',),
+                     args=('${a}',),
                      doc='d',
                      tags=('t',),
-                     return_=('r',),
                      timeout='t',
                      lineno=1,
                      error='E',
                      body=[])
+
+    def test_user_keyword_args(self):
+        for spec in [('${a}', '${b}'),
+                     ('${a}', '@{b}'),
+                     ('@{a}', '&{b}'),
+                     ('${a}', '@{b}', '${c}'),
+                     ('${a}', '@{}', '${c}'),
+                     ('${a}=d', '@{b}', '${c}=e')]:
+            self._verify(UserKeyword(args=spec), name='', args=spec, body=[])
 
     def test_user_keyword_structure(self):
         uk = UserKeyword('UK')
@@ -578,6 +585,21 @@ Example
         assert_equal(res.keywords[0].tags, ['common', 'own'])
         assert_equal(res.keywords[0].body[0].name, 'Log')
         assert_equal(res.keywords[0].body[0].args, ('Hello!',))
+
+
+class TestStringRepresentation(unittest.TestCase):
+
+    def test_user_keyword_repr(self):
+        assert_equal(repr(UserKeyword(name='x')),
+                     "robot.running.UserKeyword(name='x')")
+        assert_equal(repr(UserKeyword(name='å', args=['${a}'], doc='Not included')),
+                     "robot.running.UserKeyword(name='å', args=['${a}'])")
+
+    def test_variable_repr(self):
+        assert_equal(repr(Variable('${x}', ['two', 'parts'])),
+                     "robot.running.Variable(name='${x}', value=('two', 'parts'))")
+        assert_equal(repr(Variable('${x}', ['a', 'b'], separator='-')),
+                     "robot.running.Variable(name='${x}', value=('a', 'b'), separator='-')")
 
 
 if __name__ == '__main__':

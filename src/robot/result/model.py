@@ -34,17 +34,16 @@ __ http://robotframework.org/robotframework/latest/RobotFrameworkUserGuide.html#
 __ http://robotframework.org/robotframework/latest/RobotFrameworkUserGuide.html#programmatic-modification-of-results
 """
 
-import warnings
-from collections import OrderedDict
 from datetime import datetime, timedelta
+from io import StringIO
 from itertools import chain
 from pathlib import Path
-from typing import Generic, Literal, Mapping, Sequence, Type, Union, TypeVar
+from typing import Literal, Mapping, overload, Sequence, Union, TextIO, TypeVar
 
 from robot import model
-from robot.model import (BodyItem, create_fixture, DataDict, SuiteVisitor, Tags,
-                         TestSuites, TotalStatistics, TotalStatisticsBuilder)
-from robot.utils import copy_signature, KnownAtRuntime, setter
+from robot.model import (BodyItem, create_fixture, DataDict, Tags, TestSuites,
+                         TotalStatistics, TotalStatisticsBuilder)
+from robot.utils import setter
 
 from .configurer import SuiteConfigurer
 from .messagefilter import MessageFilter
@@ -61,33 +60,17 @@ BodyItemParent = Union['TestSuite', 'TestCase', 'Keyword', 'For', 'ForIteration'
 
 class Body(model.BaseBody['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
                           'Continue', 'Break', 'Message', 'Error']):
-    __slots__ = []
+    __slots__ = ()
 
 
 class Branches(model.BaseBranches['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
                                   'Continue', 'Break', 'Message', 'Error', IT]):
-    __slots__ = []
+    __slots__ = ()
 
 
-class IterationType(Generic[FW]):
-    """Class that wrapps `Generic` as python doesn't allow multple generic inheritance"""
-    pass
-
-
-class Iterations(model.BaseBody['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
-                                'Continue', 'Break', 'Message', 'Error'], IterationType[FW]):
-    __slots__ = ['iteration_class']
-    iteration_type: Type[FW] = KnownAtRuntime
-
-    def __init__(self, iteration_class: Type[FW],
-                 parent: BodyItemParent = None,
-                 items: 'Sequence[FW|DataDict]' = ()):
-        self.iteration_class = iteration_class
-        super().__init__(parent, items)
-
-    @copy_signature(iteration_type)
-    def create_iteration(self, *args, **kwargs) -> FW:
-        return self._create(self.iteration_class, 'iteration_class', args, kwargs)
+class Iterations(model.BaseIterations['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
+                                      'Continue', 'Break', 'Message', 'Error', FW]):
+    __slots__ = ()
 
 
 @Body.register
@@ -96,6 +79,11 @@ class Iterations(model.BaseBody['Keyword', 'For', 'While', 'If', 'Try', 'Var', '
 class Message(model.Message):
     __slots__ = ()
 
+    def to_dict(self) -> DataDict:
+        data = super().to_dict()
+        data['type'] = self.type
+        return data
+
 
 class StatusMixin:
     PASS = 'PASS'
@@ -103,6 +91,7 @@ class StatusMixin:
     SKIP = 'SKIP'
     NOT_RUN = 'NOT RUN'
     NOT_SET = 'NOT SET'
+    status: Literal['PASS', 'FAIL', 'SKIP', 'NOT RUN', 'NOT SET']
     __slots__ = ()
 
     @property
@@ -286,12 +275,18 @@ class StatusMixin:
             raise ValueError(f"`not_run` value must be truthy, got '{not_run}'.")
         self.status = self.NOT_RUN
 
+    def to_dict(self):
+        data = {'status': self.status,
+                'elapsed_time': self.elapsed_time.total_seconds()}
+        if self.start_time:
+            data['start_time'] = self.start_time.isoformat()
+        if self.message:
+            data['message'] = self.message
+        return data
 
-class ForIteration(BodyItem, StatusMixin, DeprecatedAttributesMixin):
-    """Represents one FOR loop iteration."""
-    type = BodyItem.ITERATION
+
+class ForIteration(model.ForIteration, StatusMixin, DeprecatedAttributesMixin):
     body_class = Body
-    repr_args = ('assign',)
     __slots__ = ['assign', 'message', 'status', '_start_time', '_end_time',
                  '_elapsed_time']
 
@@ -302,32 +297,15 @@ class ForIteration(BodyItem, StatusMixin, DeprecatedAttributesMixin):
                  end_time: 'datetime|str|None' = None,
                  elapsed_time: 'timedelta|int|float|None' = None,
                  parent: BodyItemParent = None):
-        self.assign = OrderedDict(assign or ())
-        self.parent = parent
+        super().__init__(assign, parent)
         self.status = status
         self.message = message
         self.start_time = start_time
         self.end_time = end_time
         self.elapsed_time = elapsed_time
-        self.body = ()
 
-    @property
-    def variables(self) -> 'Mapping[str, str]':    # TODO: Remove in RF 8.0.
-        """Deprecated since Robot Framework 7.0. Use :attr:`assign` instead."""
-        warnings.warn("'ForIteration.variables' is deprecated and will be removed in "
-                      "Robot Framework 8.0. Use 'ForIteration.assign' instead.")
-        return self.assign
-
-    @setter
-    def body(self, body: 'Sequence[BodyItem|DataDict]') -> Body:
-        return self.body_class(self, body)
-
-    def visit(self, visitor: SuiteVisitor):
-        visitor.visit_for_iteration(self)
-
-    @property
-    def _log_name(self):
-        return ', '.join(f'{name} = {value}' for name, value in self.assign.items())
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
 
 @Body.register
@@ -363,10 +341,11 @@ class For(model.For, StatusMixin, DeprecatedAttributesMixin):
     def _log_name(self):
         return str(self)[7:]    # Drop 'FOR    ' prefix.
 
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
-class WhileIteration(BodyItem, StatusMixin, DeprecatedAttributesMixin):
-    """Represents one WHILE loop iteration."""
-    type = BodyItem.ITERATION
+
+class WhileIteration(model.WhileIteration, StatusMixin, DeprecatedAttributesMixin):
     body_class = Body
     __slots__ = ['status', 'message', '_start_time', '_end_time', '_elapsed_time']
 
@@ -376,20 +355,15 @@ class WhileIteration(BodyItem, StatusMixin, DeprecatedAttributesMixin):
                  end_time: 'datetime|str|None' = None,
                  elapsed_time: 'timedelta|int|float|None' = None,
                  parent: BodyItemParent = None):
-        self.parent = parent
+        super().__init__(parent)
         self.status = status
         self.message = message
         self.start_time = start_time
         self.end_time = end_time
         self.elapsed_time = elapsed_time
-        self.body = ()
 
-    @setter
-    def body(self, body: 'Sequence[BodyItem|DataDict]') -> Body:
-        return self.body_class(self, body)
-
-    def visit(self, visitor: SuiteVisitor):
-        visitor.visit_while_iteration(self)
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
 
 @Body.register
@@ -423,6 +397,9 @@ class While(model.While, StatusMixin, DeprecatedAttributesMixin):
     def _log_name(self):
         return str(self)[9:]    # Drop 'WHILE    ' prefix.
 
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
+
 
 class IfBranch(model.IfBranch, StatusMixin, DeprecatedAttributesMixin):
     body_class = Body
@@ -447,6 +424,9 @@ class IfBranch(model.IfBranch, StatusMixin, DeprecatedAttributesMixin):
     def _log_name(self):
         return self.condition or ''
 
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
+
 
 @Body.register
 class If(model.If, StatusMixin, DeprecatedAttributesMixin):
@@ -466,6 +446,9 @@ class If(model.If, StatusMixin, DeprecatedAttributesMixin):
         self.start_time = start_time
         self.end_time = end_time
         self.elapsed_time = elapsed_time
+
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
 
 class TryBranch(model.TryBranch, StatusMixin, DeprecatedAttributesMixin):
@@ -493,6 +476,9 @@ class TryBranch(model.TryBranch, StatusMixin, DeprecatedAttributesMixin):
     def _log_name(self):
         return str(self)[len(self.type)+4:]    # Drop '<type>    ' prefix.
 
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
+
 
 @Body.register
 class Try(model.Try, StatusMixin, DeprecatedAttributesMixin):
@@ -512,6 +498,9 @@ class Try(model.Try, StatusMixin, DeprecatedAttributesMixin):
         self.start_time = start_time
         self.end_time = end_time
         self.elapsed_time = elapsed_time
+
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
 
 @Body.register
@@ -551,6 +540,12 @@ class Var(model.Var, StatusMixin, DeprecatedAttributesMixin):
     def _log_name(self):
         return str(self)[7:]    # Drop 'VAR    ' prefix.
 
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        return data
+
 
 @Body.register
 class Return(model.Return, StatusMixin, DeprecatedAttributesMixin):
@@ -582,6 +577,12 @@ class Return(model.Return, StatusMixin, DeprecatedAttributesMixin):
         """
         return self.body_class(self, body)
 
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        return data
+
 
 @Body.register
 class Continue(model.Continue, StatusMixin, DeprecatedAttributesMixin):
@@ -611,6 +612,12 @@ class Continue(model.Continue, StatusMixin, DeprecatedAttributesMixin):
         keywords.
         """
         return self.body_class(self, body)
+
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        return data
 
 
 @Body.register
@@ -642,6 +649,12 @@ class Break(model.Break, StatusMixin, DeprecatedAttributesMixin):
         """
         return self.body_class(self, body)
 
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        return data
+
 
 @Body.register
 class Error(model.Error, StatusMixin, DeprecatedAttributesMixin):
@@ -670,6 +683,12 @@ class Error(model.Error, StatusMixin, DeprecatedAttributesMixin):
         Typically contains the message that caused the error.
         """
         return self.body_class(self, body)
+
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        return data
 
 
 @Body.register
@@ -853,6 +872,26 @@ class Keyword(model.Keyword, StatusMixin):
         """Keyword tags as a :class:`~.model.tags.Tags` object."""
         return Tags(tags)
 
+    def to_dict(self) -> DataDict:
+        data = {**super().to_dict(), **StatusMixin.to_dict(self)}
+        if self.owner:
+            data['owner'] = self.owner
+        if self.source_name:
+            data['source_name'] = self.source_name
+        if self.doc:
+            data['doc'] = self.doc
+        if self.tags:
+            data['tags'] = list(self.tags)
+        if self.timeout:
+            data['timeout'] = self.timeout
+        if self.body:
+            data['body'] = self.body.to_dicts()
+        if self.has_setup:
+            data['setup'] = self.setup.to_dict()
+        if self.has_teardown:
+            data['teardown'] = self.teardown.to_dict()
+        return data
+
 
 class TestCase(model.TestCase[Keyword], StatusMixin):
     """Represents results of a single test case.
@@ -889,6 +928,9 @@ class TestCase(model.TestCase[Keyword], StatusMixin):
     def body(self, body: 'Sequence[BodyItem|DataDict]') -> Body:
         """Test body as a :class:`~robot.result.Body` object."""
         return self.body_class(self, body)
+
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
 
 
 class TestSuite(model.TestSuite[Keyword, TestCase], StatusMixin):
@@ -995,13 +1037,13 @@ class TestSuite(model.TestSuite[Keyword, TestCase], StatusMixin):
     def remove_keywords(self, how: str):
         """Remove keywords based on the given condition.
 
-        :param how: What approach to use when removing keywords. Either
+        :param how: Which approach to use when removing keywords. Either
             ``ALL``, ``PASSED``, ``FOR``, ``WUKS``, or ``NAME:<pattern>``.
 
         For more information about the possible values see the documentation
         of the ``--removekeywords`` command line option.
         """
-        self.visit(KeywordRemover(how))
+        self.visit(KeywordRemover.from_config(how))
 
     def filter_messages(self, log_level: str = 'TRACE'):
         """Remove log messages below the specified ``log_level``."""
@@ -1039,3 +1081,111 @@ class TestSuite(model.TestSuite[Keyword, TestCase], StatusMixin):
     def suite_teardown_skipped(self, message: str):
         """Internal usage only."""
         self.visit(SuiteTeardownFailed(message, skipped=True))
+
+    def to_dict(self) -> DataDict:
+        return {**super().to_dict(), **StatusMixin.to_dict(self)}
+
+    @classmethod
+    def from_dict(cls, data: DataDict) -> 'TestSuite':
+        """Create suite based on result data in a dictionary.
+
+        ``data`` can either contain only the suite data got, for example, from
+        the :meth:`to_dict` method, or it can contain full result data with
+        execution errors and other such information in addition to the suite data.
+        In the latter case only the suite data is used, though.
+
+        Support for full result data is new in Robot Framework 7.2.
+        """
+        if 'suite' in data:
+            data = data['suite']
+        return super().from_dict(data)
+
+    @classmethod
+    def from_json(cls, source: 'str|bytes|TextIO|Path') -> 'TestSuite':
+        """Create suite based on results in JSON.
+
+        The data is given as the ``source`` parameter. It can be:
+
+        - a string containing the data directly,
+        - an open file object where to read the data from, or
+        - a path (``pathlib.Path`` or string) to a UTF-8 encoded file to read.
+
+        Supports JSON produced by :meth:`to_json` that contains only the suite
+        information, as well as full result JSON that contains also execution
+        errors and other information. In the latter case errors and all other
+        information is silently ignored, though. If that is a problem,
+        :class:`~robot.result.resultbuilder.ExecutionResult` should be used
+        instead.
+
+        Support for full result JSON is new in Robot Framework 7.2.
+        """
+        return super().from_json(source)
+
+    @overload
+    def to_xml(self, file: None = None) -> str:
+        ...
+
+    @overload
+    def to_xml(self, file: 'TextIO|Path|str') -> None:
+        ...
+
+    def to_xml(self, file: 'None|TextIO|Path|str' = None) -> 'str|None':
+        """Serialize suite into XML.
+
+        The format is the same that is used with normal output.xml files, but
+        the ``<robot>`` root node is omitted and the result contains only
+        the ``<suite>`` structure.
+
+        The ``file`` parameter controls what to do with the resulting XML data.
+        It can be:
+
+        - ``None`` (default) to return the data as a string,
+        - an open file object where to write the data to, or
+        - a path (``pathlib.Path`` or string) to a file where to write
+          the data using UTF-8 encoding.
+
+        A serialized suite can be recreated by using the :meth:`from_xml` method.
+
+        New in Robot Framework 7.0.
+        """
+        from robot.reporting.outputwriter import OutputWriter
+
+        output, close = self._get_output(file)
+        try:
+            self.visit(OutputWriter(output, suite_only=True))
+        finally:
+            if close:
+                output.close()
+        return output.getvalue() if file is None else None
+
+    def _get_output(self, output) -> 'tuple[TextIO|StringIO, bool]':
+        close = False
+        if output is None:
+            output = StringIO()
+        elif isinstance(output, (Path, str)):
+            output = open(output, 'w', encoding='UTF-8')
+            close = True
+        return output, close
+
+    @classmethod
+    def from_xml(cls, source: 'str|TextIO|Path') -> 'TestSuite':
+        """Create suite based on results in XML.
+
+        The data is given as the ``source`` parameter. It can be:
+
+        - a string containing the data directly,
+        - an open file object where to read the data from, or
+        - a path (``pathlib.Path`` or string) to a UTF-8 encoded file to read.
+
+        Supports both normal output.xml files and files containing only the
+        ``<suite>`` structure created, for example, with the :meth:`to_xml`
+        method. When using normal output.xml files, possible execution errors
+        listed in ``<errors>`` are silently ignored. If that is a problem,
+        :class:`~robot.result.resultbuilder.ExecutionResult` should be used
+        instead.
+
+        New in Robot Framework 7.0.
+        """
+        from .resultbuilder import ExecutionResult
+
+        return ExecutionResult(source).suite

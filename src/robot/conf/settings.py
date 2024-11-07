@@ -18,7 +18,6 @@ import os
 import random
 import string
 import sys
-import time
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +47,7 @@ class _BaseSettings:
                  'Include'          : ('include', []),
                  'Exclude'          : ('exclude', []),
                  'OutputDir'        : ('outputdir', abspath('.')),
+                 'LegacyOutput'     : ('legacyoutput', False),
                  'Log'              : ('log', 'log.html'),
                  'Report'           : ('report', 'report.html'),
                  'XUnit'            : ('xunit', None),
@@ -68,6 +68,7 @@ class _BaseSettings:
                  'PreRebotModifiers': ('prerebotmodifier', []),
                  'StatusRC'         : ('statusrc', True),
                  'ConsoleColors'    : ('consolecolors', 'AUTO'),
+                 'ConsoleLinks'     : ('consolelinks', 'AUTO'),
                  'PythonPath'       : ('pythonpath', []),
                  'StdOut'           : ('stdout', None),
                  'StdErr'           : ('stderr', None)}
@@ -113,7 +114,7 @@ class _BaseSettings:
                 return str(value)
             return value if value and value.upper() != 'NONE' else None
         if name == 'OutputDir':
-            return abspath(value)
+            return Path(value).absolute()
         if name in ['SuiteStatLevel', 'ConsoleWidth']:
             return self._convert_to_positive_integer_or_default(name, value)
         if name == 'VariableFiles':
@@ -145,7 +146,7 @@ class _BaseSettings:
     def _process_doc(self, value):
         if isinstance(value, Path) or (os.path.isfile(value) and value.strip() == value):
             try:
-                with open(value) as f:
+                with open(value, encoding='UTF-8') as f:
                     value = f.read()
             except (OSError, IOError) as err:
                 self._raise_invalid('Doc', f"Reading documentation from '{value}' "
@@ -224,7 +225,7 @@ class _BaseSettings:
             LOGGER.error('Log file cannot be created if output.xml is disabled.')
             return None
         name = self._process_output_name(option, name)
-        path = abspath(os.path.join(self['OutputDir'], name))
+        path = self.output_directory / name
         create_destination_directory(path, f'{option.lower()} file')
         return path
 
@@ -339,7 +340,7 @@ class _BaseSettings:
     def _validate_remove_keywords(self, values):
         for value in values:
             try:
-                KeywordRemover(value)
+                KeywordRemover.from_config(value)
             except DataError as err:
                 self._raise_invalid('RemoveKeywords', err)
 
@@ -365,23 +366,27 @@ class _BaseSettings:
         return '\n'.join(f'{name}: {self._opts[name]}' for name in sorted(self._opts))
 
     @property
-    def output_directory(self):
-        return self['OutputDir']
+    def output_directory(self) -> Path:
+        return Path(self['OutputDir'])
 
     @property
-    def output(self):
+    def output(self) -> 'Path|None':
         return self['Output']
 
     @property
-    def log(self):
+    def legacy_output(self) -> bool:
+        return self['LegacyOutput']
+
+    @property
+    def log(self) -> 'Path|None':
         return self['Log']
 
     @property
-    def report(self):
+    def report(self) -> 'Path|None':
         return self['Report']
 
     @property
-    def xunit(self):
+    def xunit(self) -> 'Path|None':
         return self['XUnit']
 
     @property
@@ -449,6 +454,10 @@ class _BaseSettings:
     @property
     def console_colors(self):
         return self['ConsoleColors']
+
+    @property
+    def console_links(self):
+        return self['ConsoleLinks']
 
     @property
     def rpa(self):
@@ -609,6 +618,7 @@ class RobotSettings(_BaseSettings):
             'type':    self.console_type,
             'width':   self.console_width,
             'colors':  self.console_colors,
+            'links': self.console_links,
             'markers': self.console_markers,
             'stdout':  self['StdOut'],
             'stderr':  self['StdErr']
@@ -732,6 +742,7 @@ class RebotSettings(_BaseSettings):
     def console_output_config(self):
         return {
             'colors':  self.console_colors,
+            'links': self.console_links,
             'stdout':  self['StdOut'],
             'stderr':  self['StdErr']
         }

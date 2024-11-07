@@ -2,7 +2,7 @@ import unittest
 import warnings
 from contextlib import contextmanager
 
-from robot.utils.asserts import assert_equal, assert_false, assert_true
+from robot.utils.asserts import assert_equal, assert_false, assert_raises, assert_true
 from robot import utils
 
 
@@ -14,7 +14,8 @@ class TestCompatibilityLayer(unittest.TestCase):
             yield
         assert_equal(str(w[0].message),
                      f"'robot.utils.{name}' is deprecated and will be removed "
-                     f"in Robot Framework 8.0.")
+                     f"in Robot Framework 9.0.")
+        assert_equal(w[0].category, DeprecationWarning)
 
     def test_constants(self):
         with self.validate_deprecation('PY3'):
@@ -89,6 +90,9 @@ class TestCompatibilityLayer(unittest.TestCase):
         import io
         with self.validate_deprecation('StringIO'):
             assert_true(utils.StringIO is io.StringIO)
+
+    def test_non_existing_attribute(self):
+        assert_raises(AttributeError, getattr, utils, 'xxx')
 
 
 if __name__ == '__main__':

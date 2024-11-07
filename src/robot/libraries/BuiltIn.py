@@ -17,6 +17,7 @@ import difflib
 import re
 import time
 from collections import OrderedDict
+from collections.abc import Sequence
 
 from robot.api import logger, SkipExecution
 from robot.api.deco import keyword
@@ -25,7 +26,6 @@ from robot.errors import (BreakLoop, ContinueLoop, DataError, ExecutionFailed,
                           ReturnFromKeyword, VariableError)
 from robot.running import Keyword, RUN_KW_REGISTER
 from robot.running.context import EXECUTION_CONTEXTS
-from robot.running.usererrorhandler import UserErrorHandler
 from robot.utils import (DotDict, escape, format_assign_message, get_error_message,
                          get_time, html_escape, is_falsy, is_integer, is_list_like,
                          is_string, is_truthy, Matcher, normalize,
@@ -526,7 +526,7 @@ class _Verify(_BuiltInBase):
         See `Fatal Error` if you need to stop the whole test execution.
         """
         self._set_and_remove_tags(tags)
-        raise AssertionError(msg) if msg else AssertionError()
+        raise AssertionError(msg) if msg is not None else AssertionError()
 
     def fatal_error(self, msg=None):
         """Stops the whole test execution.
@@ -626,8 +626,8 @@ class _Verify(_BuiltInBase):
         self._log_types_at_info_if_different(first, second)
         if is_string(first) and is_string(second):
             if ignore_case:
-                first = first.lower()
-                second = second.lower()
+                first = first.casefold()
+                second = second.casefold()
             if strip_spaces:
                 first = self._strip_spaces(first, strip_spaces)
                 second = self._strip_spaces(second, strip_spaces)
@@ -708,8 +708,8 @@ class _Verify(_BuiltInBase):
         self._log_types_at_info_if_different(first, second)
         if is_string(first) and is_string(second):
             if ignore_case:
-                first = first.lower()
-                second = second.lower()
+                first = first.casefold()
+                second = second.casefold()
             if strip_spaces:
                 first = self._strip_spaces(first, strip_spaces)
                 second = self._strip_spaces(second, strip_spaces)
@@ -844,8 +844,8 @@ class _Verify(_BuiltInBase):
         first = safe_str(first)
         second = safe_str(second)
         if ignore_case:
-            first = first.lower()
-            second = second.lower()
+            first = first.casefold()
+            second = second.casefold()
         if strip_spaces:
             first = self._strip_spaces(first, strip_spaces)
             second = self._strip_spaces(second, strip_spaces)
@@ -885,8 +885,8 @@ class _Verify(_BuiltInBase):
         first = safe_str(first)
         second = safe_str(second)
         if ignore_case:
-            first = first.lower()
-            second = second.lower()
+            first = first.casefold()
+            second = second.casefold()
         if strip_spaces:
             first = self._strip_spaces(first, strip_spaces)
             second = self._strip_spaces(second, strip_spaces)
@@ -905,8 +905,8 @@ class _Verify(_BuiltInBase):
         of the ``ignore_case``, ``strip_spaces``, and ``collapse_spaces`` options.
         """
         if ignore_case:
-            str1 = str1.lower()
-            str2 = str2.lower()
+            str1 = str1.casefold()
+            str2 = str2.casefold()
         if strip_spaces:
             str1 = self._strip_spaces(str1, strip_spaces)
             str2 = self._strip_spaces(str2, strip_spaces)
@@ -926,8 +926,8 @@ class _Verify(_BuiltInBase):
         of the ``ignore_case``, ``strip_spaces``, and ``collapse_spaces`` options.
         """
         if ignore_case:
-            str1 = str1.lower()
-            str2 = str2.lower()
+            str1 = str1.casefold()
+            str2 = str2.casefold()
         if strip_spaces:
             str1 = self._strip_spaces(str1, strip_spaces)
             str2 = self._strip_spaces(str2, strip_spaces)
@@ -948,8 +948,8 @@ class _Verify(_BuiltInBase):
         of the ``ignore_case``, ``strip_spaces``, and ``collapse_spaces`` options.
         """
         if ignore_case:
-            str1 = str1.lower()
-            str2 = str2.lower()
+            str1 = str1.casefold()
+            str2 = str2.casefold()
         if strip_spaces:
             str1 = self._strip_spaces(str1, strip_spaces)
             str2 = self._strip_spaces(str2, strip_spaces)
@@ -969,8 +969,8 @@ class _Verify(_BuiltInBase):
         of the ``ignore_case``, ``strip_spaces``, and ``collapse_spaces`` options.
         """
         if ignore_case:
-            str1 = str1.lower()
-            str2 = str2.lower()
+            str1 = str1.casefold()
+            str2 = str2.casefold()
         if strip_spaces:
             str1 = self._strip_spaces(str1, strip_spaces)
             str2 = self._strip_spaces(str2, strip_spaces)
@@ -1017,11 +1017,11 @@ class _Verify(_BuiltInBase):
         # case-insensitive comparisons.
         orig_container = container
         if ignore_case and is_string(item):
-            item = item.lower()
+            item = item.casefold()
             if is_string(container):
-                container = container.lower()
+                container = container.casefold()
             elif is_list_like(container):
-                container = set(x.lower() if is_string(x) else x for x in container)
+                container = set(x.casefold() if is_string(x) else x for x in container)
         if strip_spaces and is_string(item):
             item = self._strip_spaces(item, strip_spaces)
             if is_string(container):
@@ -1042,7 +1042,7 @@ class _Verify(_BuiltInBase):
                        ignore_case=False, strip_spaces=False, collapse_spaces=False):
         """Fails if ``container`` does not contain ``item`` one or more times.
 
-        Works with strings, lists, and anything that supports Python's ``in``
+        Works with strings, lists, bytes, and anything that supports Python's ``in``
         operator.
 
         See `Should Be Equal` for an explanation on how to override the default
@@ -1063,21 +1063,34 @@ class _Verify(_BuiltInBase):
         arguments are strings, the comparison is done with all white spaces replaced by
         a single space character.
 
+        If the ``container`` is bytes and the ``item`` is a string, the ``item``
+        is automatically converted to bytes. Conversion is done using the ISO-8859-1
+        encoding that maps each Unicode code point directly to a matching byte.
+
         Examples:
         | Should Contain | ${output}    | PASS  |
         | Should Contain | ${some list} | value | msg=Failure! | values=False |
         | Should Contain | ${some list} | value | ignore_case=True |
 
-        ``strip_spaces`` is new in Robot Framework 4.0 and ``collapse_spaces`` is new
-        in Robot Framework 4.1.
+        ``strip_spaces`` is new in Robot Framework 4.0, ``collapse_spaces`` is new
+        in Robot Framework 4.1 and automatically converting ``item`` to bytes
+        is new in Robot Framework 7.1.
         """
         orig_container = container
+        if isinstance(container, (bytes, bytearray)):
+            if isinstance(item, str):
+                try:
+                    item = item.encode('ISO-8859-1')
+                except UnicodeEncodeError:
+                    raise ValueError(f'{item!r} cannot be encoded into bytes.')
+            elif isinstance(item, int) and item not in range(256):
+                raise ValueError(f'Byte must be in range 0-255, got {item}.')
         if ignore_case and is_string(item):
-            item = item.lower()
+            item = item.casefold()
             if is_string(container):
-                container = container.lower()
+                container = container.casefold()
             elif is_list_like(container):
-                container = set(x.lower() if is_string(x) else x for x in container)
+                container = set(x.casefold() if is_string(x) else x for x in container)
         if strip_spaces and is_string(item):
             item = self._strip_spaces(item, strip_spaces)
             if is_string(container):
@@ -1128,11 +1141,11 @@ class _Verify(_BuiltInBase):
             raise RuntimeError('One or more items required.')
         orig_container = container
         if ignore_case:
-            items = [x.lower() if is_string(x) else x for x in items]
+            items = [x.casefold() if is_string(x) else x for x in items]
             if is_string(container):
-                container = container.lower()
+                container = container.casefold()
             elif is_list_like(container):
-                container = set(x.lower() if is_string(x) else x for x in container)
+                container = set(x.casefold() if is_string(x) else x for x in container)
         if strip_spaces:
             items = [self._strip_spaces(x, strip_spaces) for x in items]
             if is_string(container):
@@ -1186,11 +1199,11 @@ class _Verify(_BuiltInBase):
             raise RuntimeError('One or more items required.')
         orig_container = container
         if ignore_case:
-            items = [x.lower() if is_string(x) else x for x in items]
+            items = [x.casefold() if is_string(x) else x for x in items]
             if is_string(container):
-                container = container.lower()
+                container = container.casefold()
             elif is_list_like(container):
-                container = set(x.lower() if is_string(x) else x for x in container)
+                container = set(x.casefold() if is_string(x) else x for x in container)
         if strip_spaces:
             items = [self._strip_spaces(x, strip_spaces) for x in items]
             if is_string(container):
@@ -1246,11 +1259,11 @@ class _Verify(_BuiltInBase):
         orig_container = container
         if is_string(item):
             if ignore_case:
-                item = item.lower()
+                item = item.casefold()
                 if is_string(container):
-                    container = container.lower()
+                    container = container.casefold()
                 elif is_list_like(container):
-                    container = [x.lower() if is_string(x) else x for x in container]
+                    container = [x.casefold() if is_string(x) else x for x in container]
             if strip_spaces:
                 item = self._strip_spaces(item, strip_spaces)
                 if is_string(container):
@@ -1528,8 +1541,12 @@ class _Variables(_BuiltInBase):
         For the reasons explained in the `Using variables with keywords creating
         or accessing variables` section, using the escaped format is recommended.
 
+        Notice that ``default`` must be given positionally like ``example`` and
+        not using the named-argument syntax like ``default=example``. We hope to
+        be able to remove this limitation in the future.
+
         Examples:
-        | ${x} =    `Get Variable Value`    $a    default
+        | ${x} =    `Get Variable Value`    $a    example
         | ${y} =    `Get Variable Value`    $a    ${b}
         | ${z} =    `Get Variable Value`    $z
         =>
@@ -1546,7 +1563,7 @@ class _Variables(_BuiltInBase):
     def log_variables(self, level='INFO'):
         """Logs all variables in the current scope with given log level."""
         variables = self.get_variables()
-        for name in sorted(variables, key=lambda s: s[2:-1].lower()):
+        for name in sorted(variables, key=lambda s: s[2:-1].casefold()):
             name, value = self._get_logged_variable(name, variables)
             msg = format_assign_message(name, value, cut_long=False)
             self.log(msg, level)
@@ -1555,17 +1572,20 @@ class _Variables(_BuiltInBase):
         value = variables[name]
         try:
             if name[0] == '@':
-                value = list(value)
+                if isinstance(value, Sequence):
+                    value = list(value)
+                else:    # Don't consume iterables.
+                    name = '$' + name[1:]
             if name[0] == '&':
                 value = OrderedDict(value)
         except RERAISED_EXCEPTIONS:
             raise
-        except:
+        except Exception:
             name = '$' + name[1:]
         return name, value
 
     @run_keyword_variant(resolve=0)
-    def variable_should_exist(self, name, msg=None):
+    def variable_should_exist(self, name, message=None):
         r"""Fails unless the given variable exists within the current scope.
 
         The name of the variable can be given either as a normal variable name
@@ -1573,7 +1593,10 @@ class _Variables(_BuiltInBase):
         For the reasons explained in the `Using variables with keywords creating
         or accessing variables` section, using the escaped format is recommended.
 
-        The default error message can be overridden with the ``msg`` argument.
+        The default error message can be overridden with the ``message`` argument.
+        Notice that it must be given positionally like ``A message`` and not
+        using the named-argument syntax like ``message=A message``. We hope to
+        be able to remove this limitation in the future.
 
         See also `Variable Should Not Exist` and `Keyword Should Exist`.
         """
@@ -1581,11 +1604,11 @@ class _Variables(_BuiltInBase):
         try:
             self._variables.replace_scalar(name)
         except VariableError:
-            raise AssertionError(self._variables.replace_string(msg)
-                                 if msg else f"Variable '{name}' does not exist.")
+            raise AssertionError(self._variables.replace_string(message)
+                                 if message else f"Variable '{name}' does not exist.")
 
     @run_keyword_variant(resolve=0)
-    def variable_should_not_exist(self, name, msg=None):
+    def variable_should_not_exist(self, name, message=None):
         r"""Fails if the given variable exists within the current scope.
 
         The name of the variable can be given either as a normal variable name
@@ -1593,7 +1616,10 @@ class _Variables(_BuiltInBase):
         For the reasons explained in the `Using variables with keywords creating
         or accessing variables` section, using the escaped format is recommended.
 
-        The default error message can be overridden with the ``msg`` argument.
+        The default error message can be overridden with the ``message`` argument.
+        Notice that it must be given positionally like ``A message`` and not
+        using the named-argument syntax like ``message=A message``. We hope to
+        be able to remove this limitation in the future.
 
         See also `Variable Should Exist` and `Keyword Should Exist`.
         """
@@ -1603,8 +1629,8 @@ class _Variables(_BuiltInBase):
         except VariableError:
             pass
         else:
-            raise AssertionError(self._variables.replace_string(msg)
-                                 if msg else f"Variable '{name}' exists.")
+            raise AssertionError(self._variables.replace_string(message)
+                                 if message else f"Variable '{name}' exists.")
 
     def replace_variables(self, text):
         """Replaces variables in the given text with their current values.
@@ -1634,16 +1660,23 @@ class _Variables(_BuiltInBase):
         It is recommended to use `Create List` when creating new lists.
 
         Examples:
-        | ${hi} =   | Set Variable | Hello, world! |
-        | ${hi2} =  | Set Variable | I said: ${hi} |
-        | ${var1}   | ${var2} =    | Set Variable | Hello | world |
-        | @{list} = | Set Variable | ${list with some items} |
-        | ${item1}  | ${item2} =   | Set Variable  | ${list with 2 items} |
+        | ${hi} =    Set Variable    Hello, world!
+        | ${hi2} =    Set Variable    I said: ${hi}
+        | ${var1}    ${var2} =    Set Variable    Hello    world
+        | @{list} =    Set Variable    ${list with some items}
+        | ${item1}    ${item2} =    Set Variable    ${list with 2 items}
 
         Variables created with this keyword are available only in the
         scope where they are created. See `Set Global Variable`,
         `Set Test Variable` and `Set Suite Variable` for information on how to
         set variables so that they are available also in a larger scope.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is generally
+        recommended over this keyword. The basic usage is shown below and the Robot
+        Framework User Guide explains the syntax in detail.
+
+        | VAR    ${hi}     Hello, world!
+        | VAR    ${hi2}    I said: ${hi}
         """
         if len(values) == 0:
             return ''
@@ -1683,6 +1716,9 @@ class _Variables(_BuiltInBase):
         ``${name}``.
 
         See also `Set Global Variable` and `Set Test Variable`.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is recommended
+        over this keyword.
         """
         name = self._get_var_name(name)
         value = self._get_var_value(name, values)
@@ -1698,8 +1734,12 @@ class _Variables(_BuiltInBase):
         variable in a user keyword, it is available both in the test case level
         and also in all other user keywords used in the current test. Other
         test cases will not see variables set with this keyword.
-        It is an error to call `Set Test Variable` outside the
-        scope of a test (e.g. in a Suite Setup or Teardown).
+
+        If `Set Test Variable` is used in suite setup, the variable is available
+        everywhere within that suite setup as well as in the corresponding suite
+        teardown, but it is not seen by tests or possible child suites. If the
+        keyword is used in a suite teardown, the variable is available only in that
+        teardown.
 
         See `Set Suite Variable` for more information and usage examples. See
         also the `Using variables with keywords creating or accessing variables`
@@ -1709,6 +1749,12 @@ class _Variables(_BuiltInBase):
 
         When creating automated tasks, not tests, it is possible to use `Set
         Task Variable`. See also `Set Global Variable` and `Set Local Variable`.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is recommended
+        over this keyword.
+
+        *NOTE:* Prior to Robot Framework 7.2, using `Set Test Variable` in a suite
+        setup or teardown was an error.
         """
         name = self._get_var_name(name)
         value = self._get_var_value(name, values)
@@ -1721,6 +1767,9 @@ class _Variables(_BuiltInBase):
 
         This is an alias for `Set Test Variable` that is more applicable when
         creating tasks, not tests.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is recommended
+        over this keyword.
         """
         self.set_test_variable(name, *values)
 
@@ -1773,6 +1822,14 @@ class _Variables(_BuiltInBase):
         | Set Suite Variable    &DICT      &{EMPTY}
 
         See also `Set Global Variable`, `Set Test Variable` and `Set Local Variable`.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is recommended
+        over this keyword. The basic usage is shown below and the Robot Framework
+        User Guide explains the syntax in detail.
+
+        | VAR    ${SCALAR}    Hello, world!                scope=SUITE
+        | VAR    @{LIST}      First item    Second item    scope=SUITE
+        | VAR    &{DICT}      key=value     foo=bar        scope=SUITE
         """
         name = self._get_var_name(name)
         if values and is_string(values[-1]) and values[-1].startswith('children='):
@@ -1806,6 +1863,9 @@ class _Variables(_BuiltInBase):
         section for information why it is recommended to give the variable name
         in escaped format like ``$name`` or ``\${name}`` instead of the normal
         ``${name}``.
+
+        *NOTE:* The ``VAR`` syntax introduced in Robot Framework 7.0 is recommended
+        over this keyword.
         """
         name = self._get_var_name(name)
         value = self._get_var_value(name, values)
@@ -1884,10 +1944,15 @@ class _RunKeyword(_BuiltInBase):
         ctx = self._context
         if not (ctx.dry_run or self._accepts_embedded_arguments(name, ctx)):
             name, args = self._replace_variables_in_name([name] + list(args))
-        parent = ctx.steps[-1][0] if ctx.steps else (ctx.test or ctx.suite)
-        kw = Keyword(name, args=args, parent=parent,
-                     lineno=getattr(parent, 'lineno', None))
-        return kw.run(ctx)
+        if ctx.steps:
+            data, result = ctx.steps[-1]
+            lineno = data.lineno
+        else:    # Called, typically by a listener, when no keyword started.
+            data = lineno = None
+            result = ctx.test or (ctx.suite.setup if not ctx.suite.has_tests
+                                  else ctx.suite.teardown)
+        kw = Keyword(name, args=args, parent=data, lineno=lineno)
+        return kw.run(result, ctx)
 
     def _accepts_embedded_arguments(self, name, ctx):
         if '{' in name:
@@ -2331,7 +2396,7 @@ class _RunKeyword(_BuiltInBase):
         ``5 times``, ``10 x``). ``retry_interval`` must always be given in
         Robot Framework's time format.
 
-        By default ``retry_interval`` is the time to wait _after_ a keyword has
+        By default, ``retry_interval`` is the time to wait _after_ a keyword has
         failed. For example, if the first run takes 2 seconds and the retry
         interval is 3 seconds, the second run starts 5 seconds after the first
         run started. If ``retry_interval`` start with prefix ``strict:``, the
@@ -2355,7 +2420,7 @@ class _RunKeyword(_BuiltInBase):
         Running the same keyword multiple times inside this keyword can create
         lots of output and considerably increase the size of the generated
         output files. It is possible to remove unnecessary keywords from
-        the outputs using ``--RemoveKeywords WUKS`` command line option.
+        the outputs using the ``--remove-keywords WUKS`` command line option.
 
         Support for "strict" retry interval is new in Robot Framework 4.1.
         """
@@ -2381,10 +2446,12 @@ class _RunKeyword(_BuiltInBase):
             try:
                 return self.run_keyword(name, *args)
             except ExecutionFailed as err:
+                self._reset_keyword_timeout_in_teardown(err, self._context)
                 if err.dont_continue or err.skip:
                     raise
                 count -= 1
                 if time.time() > maxtime > 0 or count == 0:
+                    name = self._variables.replace_scalar(name)
                     raise AssertionError(f"Keyword '{name}' failed after retrying "
                                          f"{message}. The last error was: {err}")
             finally:
@@ -2398,6 +2465,17 @@ class _RunKeyword(_BuiltInBase):
                             f"{secs_to_timestr(retry_interval)}."
                         )
             self._sleep_in_parts(sleep_time)
+
+    def _reset_keyword_timeout_in_teardown(self, err, context):
+        # Keyword timeouts in teardowns have been converted to normal failures
+        # to allow execution to continue on higher level:
+        # https://github.com/robotframework/robotframework/issues/3398
+        # We need to reset it here to not continue unnecessarily:
+        # https://github.com/robotframework/robotframework/issues/5237
+        if context.in_teardown:
+            timeouts = [t for t in context.timeouts if t.type == 'Keyword']
+            if timeouts and min(timeouts).timed_out():
+                err.keyword_timeout = True
 
     @run_keyword_variant(resolve=1)
     def set_variable_if(self, condition, *values):
@@ -2439,19 +2517,21 @@ class _RunKeyword(_BuiltInBase):
         Use `Get Variable Value` if you need to set variables
         dynamically based on whether a variable exist or not.
         """
-        values = self._verify_values_for_set_variable_if(list(values))
-        if self._is_true(condition):
-            return self._variables.replace_scalar(values[0])
-        values = self._verify_values_for_set_variable_if(values[1:], True)
-        if len(values) == 1:
-            return self._variables.replace_scalar(values[0])
-        return self.run_keyword('BuiltIn.Set Variable If', *values[0:])
+        values = list(values)
+        while True:
+            values = self._verify_values_for_set_variable_if(values)
+            if self._is_true(condition):
+                return self._variables.replace_scalar(values[0])
+            if len(values) == 1:
+                return None
+            if len(values) == 2:
+                return self._variables.replace_scalar(values[1])
+            condition, *values = values[1:]
+            condition = self._variables.replace_scalar(condition)
 
-    def _verify_values_for_set_variable_if(self, values, default=False):
+    def _verify_values_for_set_variable_if(self, values):
         if not values:
-            if default:
-                return [None]
-            raise RuntimeError('At least one value is required')
+            raise RuntimeError('At least one value is required.')
         if is_list_variable(values[0]):
             values[:1] = [escape(item) for item in self._variables[values[0]]]
             return self._verify_values_for_set_variable_if(values)
@@ -3140,22 +3220,33 @@ class _Misc(_BuiltInBase):
         pass
 
     def set_log_level(self, level):
-        """Sets the log threshold to the specified level and returns the old level.
+        """Sets the log threshold to the specified level.
 
         Messages below the level will not logged. The default logging level is
-        INFO, but it can be overridden with the command line option
-        ``--loglevel``.
+        INFO, but it can be overridden with the ``--loglevel`` command line option.
+        The available levels are TRACE, DEBUG, INFO (default), WARN, ERROR and NONE
+        (no logging).
 
-        The available levels: TRACE, DEBUG, INFO (default), WARN, ERROR and NONE (no
-        logging).
+        The old level is returned and can be used for setting the level back
+        later. An alternative way to reset the level is using the dedicated
+        `Reset Log Level` keyword.
         """
-        try:
-            old = self._context.output.set_log_level(level)
-        except DataError as err:
-            raise RuntimeError(str(err))
+        old = self._context.output.set_log_level(level)
         self._namespace.variables.set_global('${LOG_LEVEL}', level.upper())
-        self.log(f'Log level changed from {old} to {level.upper()}.')
+        self.log(f'Log level changed from {old} to {level.upper()}.', level='DEBUG')
         return old
+
+    def reset_log_level(self):
+        """Resets the log level to the original value.
+
+        The original log level is set from the command line with the ``--loglevel``
+        option and is INFO by default. The active log level can be changed using
+        the `Set Log Level` keyword.
+
+        New in Robot Framework 7.0.
+        """
+        level = self._context.output.initial_log_level
+        return self.set_log_level(level)
 
     def reload_library(self, name_or_instance):
         """Rechecks what keywords the specified library provides.
@@ -3167,8 +3258,8 @@ class _Misc(_BuiltInBase):
         the library. The latter is especially useful if the library itself
         calls this keyword as a method.
         """
-        library = self._namespace.reload_library(name_or_instance)
-        self.log(f'Reloaded library {library.name} with {len(library)} keywords.')
+        lib = self._namespace.reload_library(name_or_instance)
+        self.log(f'Reloaded library {lib.name} with {len(lib.keywords)} keywords.')
 
     @run_keyword_variant(resolve=0)
     def import_library(self, name, *args):
@@ -3188,12 +3279,12 @@ class _Misc(_BuiltInBase):
         operating systems.
 
         It is possible to pass arguments to the imported library and also
-        named argument syntax works if the library supports it. ``WITH NAME``
+        named argument syntax works if the library supports it. ``AS``
         syntax can be used to give a custom name to the imported library.
 
         Examples:
         | Import Library | MyLibrary |
-        | Import Library | ${CURDIR}/Lib.py | arg1 | named=arg2 | WITH NAME | Custom |
+        | Import Library | ${CURDIR}/Lib.py | arg1 | named=arg2 | AS | Custom |
         """
         args, alias = self._split_alias(args)
         try:
@@ -3308,11 +3399,11 @@ class _Misc(_BuiltInBase):
         See also `Variable Should Exist`.
         """
         try:
-            runner = self._namespace.get_runner(name, recommend_on_failure=False)
-        except DataError as error:
-            raise AssertionError(msg or error.message)
-        if isinstance(runner, UserErrorHandler):
-            raise AssertionError(msg or runner.error.message)
+            kw = self._namespace.get_runner(name, recommend_on_failure=False).keyword
+            if kw.error:
+                raise DataError(kw.error)
+        except DataError as err:
+            raise AssertionError(msg or err.message)
 
     def get_time(self, format='timestamp', time_='NOW'):
         """Returns the given time in the requested format.
@@ -3502,12 +3593,16 @@ class _Misc(_BuiltInBase):
             return re.escape(patterns[0])
         return [re.escape(p) for p in patterns]
 
-    def set_test_message(self, message, append=False):
+    def set_test_message(self, message, append=False, separator=' '):
         """Sets message for the current test case.
 
         If the optional ``append`` argument is given a true value (see `Boolean
         arguments`), the given ``message`` is added after the possible earlier
         message by joining the messages with a space.
+        
+        An optional ``separator`` argument can be used to provide custom separator
+        string when appending to old text. By default a single space is used 
+        as separator.
 
         In test teardown this keyword can alter the possible failure message,
         but otherwise failures override messages set by this keyword. Notice
@@ -3524,19 +3619,20 @@ class _Misc(_BuiltInBase):
         | Set Test Message | `*`HTML`*` <b>Hello!</b> |                      |
 
         This keyword can not be used in suite setup or suite teardown.
+        ``separator`` argument is new in Robot Framework 7.2.
         """
         test = self._context.test
         if not test:
             raise RuntimeError("'Set Test Message' keyword cannot be used in "
                                "suite setup or teardown.")
-        test.message = self._get_new_text(test.message, message,
-                                          append, handle_html=True)
+        test.message = self._get_new_text(
+            test.message, message, append, handle_html=True, separator=separator)
         if self._context.in_test_teardown:
             self._variables.set_test("${TEST_MESSAGE}", test.message)
         message, level = self._get_logged_test_message_and_level(test.message)
         self.log(f'Set test message to:\n{message}', level)
 
-    def _get_new_text(self, old, new, append, handle_html=False):
+    def _get_new_text(self, old, new, append, handle_html=False, separator=' '):
         if not is_string(new):
             new = str(new)
         if not (is_truthy(append) and old):
@@ -3546,35 +3642,43 @@ class _Misc(_BuiltInBase):
                 new = new[6:].lstrip()
                 if not old.startswith('*HTML*'):
                     old = f'*HTML* {html_escape(old)}'
+                separator = html_escape(separator)
             elif old.startswith('*HTML*'):
                 new = html_escape(new)
-        return f'{old} {new}'
+                separator = html_escape(separator)
+        return f'{old}{separator}{new}'
 
     def _get_logged_test_message_and_level(self, message):
         if message.startswith('*HTML*'):
             return message[6:].lstrip(), 'HTML'
         return message, 'INFO'
 
-    def set_test_documentation(self, doc, append=False):
+    def set_test_documentation(self, doc, append=False, separator=' '):
         """Sets documentation for the current test case.
 
         By default the possible existing documentation is overwritten, but
         this can be changed using the optional ``append`` argument similarly
         as with `Set Test Message` keyword.
+        
+        An optional ``separator`` argument can be used to provide custom separator
+        string when appending to old text. By default a single space is used 
+        as separator.
 
         The current test documentation is available as a built-in variable
         ``${TEST DOCUMENTATION}``. This keyword can not be used in suite
         setup or suite teardown.
+        
+        ``separator`` argument is new in Robot Framework 7.2.
         """
         test = self._context.test
         if not test:
             raise RuntimeError("'Set Test Documentation' keyword cannot be "
                                "used in suite setup or teardown.")
-        test.doc = self._get_new_text(test.doc, doc, append)
+        test.doc = self._get_new_text(test.doc, doc, append, separator=separator)
         self._variables.set_test('${TEST_DOCUMENTATION}', test.doc)
         self.log(f'Set test documentation to:\n{test.doc}')
 
-    def set_suite_documentation(self, doc, append=False, top=False):
+    def set_suite_documentation(self, doc, append=False, top=False, separator=' '):
         """Sets documentation for the current test suite.
 
         By default, the possible existing documentation is overwritten, but
@@ -3585,16 +3689,22 @@ class _Misc(_BuiltInBase):
         If the optional ``top`` argument is given a true value (see `Boolean
         arguments`), the documentation of the top level suite is altered
         instead.
+        
+        An optional ``separator`` argument can be used to provide custom separator
+        string when appending to old text. By default a single space is used 
+        as separator.
 
         The documentation of the current suite is available as a built-in
         variable ``${SUITE DOCUMENTATION}``.
+        
+        ``separator`` argument is new in Robot Framework 7.2.
         """
         suite = self._get_context(top).suite
-        suite.doc = self._get_new_text(suite.doc, doc, append)
+        suite.doc = self._get_new_text(suite.doc, doc, append, separator=separator)
         self._variables.set_suite('${SUITE_DOCUMENTATION}', suite.doc, top)
         self.log(f'Set suite documentation to:\n{suite.doc}')
 
-    def set_suite_metadata(self, name, value, append=False, top=False):
+    def set_suite_metadata(self, name, value, append=False, top=False, separator=' '):
         """Sets metadata for the current test suite.
 
         By default, possible existing metadata values are overwritten, but
@@ -3604,16 +3714,23 @@ class _Misc(_BuiltInBase):
         This keyword sets the metadata of the current suite by default.
         If the optional ``top`` argument is given a true value (see `Boolean
         arguments`), the metadata of the top level suite is altered instead.
+        
+        An optional ``separator`` argument can be used to provide custom separator
+        string when appending to old text. By default a single space is used 
+        as separator.
 
         The metadata of the current suite is available as a built-in variable
         ``${SUITE METADATA}`` in a Python dictionary. Notice that modifying this
         variable directly has no effect on the actual metadata the suite has.
+        
+        ``separator`` argument is new in Robot Framework 7.2.
         """
         if not is_string(name):
             name = str(name)
         metadata = self._get_context(top).suite.metadata
         original = metadata.get(name, '')
-        metadata[name] = self._get_new_text(original, value, append)
+        metadata[name] = self._get_new_text(original, value, append, 
+                                            separator=separator)
         self._variables.set_suite('${SUITE_METADATA}', metadata.copy(), top)
         self.log(f"Set suite metadata '{name}' to value '{metadata[name]}'.")
 
@@ -3726,40 +3843,6 @@ class BuiltIn(_Verify, _Converter, _Variables, _RunKeyword, _Control, _Misc):
     HTML in messages is not limited to BuiltIn library but works with any
     error message.
 
-    = Using variables with keywords creating or accessing variables =
-
-    This library has special keywords `Set Global Variable`, `Set Suite Variable`,
-    `Set Test Variable` and `Set Local Variable` for creating variables in
-    different scopes. These keywords take the variable name and its value as
-    arguments. The name can be given using the normal ``${variable}`` syntax or
-    in escaped format either like ``$variable`` or ``\${variable}``. For example,
-    these are typically equivalent and create new suite level variable
-    ``${name}`` with value ``value``:
-
-    | Set Suite Variable    ${name}     value
-    | Set Suite Variable    $name       value
-    | Set Suite Variable    \${name}    value
-
-    A problem with using the normal ``${variable}`` syntax is that these
-    keywords cannot easily know is the idea to create a variable with exactly
-    that name or does that variable actually contain the name of the variable
-    to create. If the variable does not initially exist, it will always be
-    created. If it exists and its value is a variable name either in the normal
-    or in the escaped syntax, variable with _that_ name is created instead.
-    For example, if ``${name}`` variable would exist and contain value
-    ``$example``, these examples would create different variables:
-
-    | Set Suite Variable    ${name}     value    # Creates ${example}.
-    | Set Suite Variable    $name       value    # Creates ${name}.
-    | Set Suite Variable    \${name}    value    # Creates ${name}.
-
-    Because the behavior when using the normal ``${variable}`` syntax depends
-    on the possible existing value of the variable, it is *highly recommended
-    to use the escaped ``$variable`` or ``\${variable}`` format instead*.
-
-    This same problem occurs also with special keywords for accessing variables
-    `Get Variable Value`, `Variable Should Exist` and `Variable Should Not Exist`.
-
     = Evaluating expressions =
 
     Many keywords, such as `Evaluate`, `Run Keyword If` and `Should Be True`,
@@ -3823,6 +3906,45 @@ class BuiltIn(_Verify, _Converter, _Variables, _RunKeyword, _Control, _Misc):
     Notice that instead of creating complicated expressions, it is often better
     to move the logic into a library. That eases maintenance and can also
     enhance execution speed.
+
+    = Using variables with keywords creating or accessing variables =
+
+    This library has special keywords `Set Global Variable`, `Set Suite Variable`,
+    `Set Test Variable` and `Set Local Variable` for creating variables in
+    different scopes. These keywords take the variable name and its value as
+    arguments. The name can be given using the normal ``${variable}`` syntax or
+    in escaped format either like ``$variable`` or ``\${variable}``. For example,
+    these are typically equivalent and create new suite level variable
+    ``${name}`` with value ``value``:
+
+    | Set Suite Variable    ${name}     value
+    | Set Suite Variable    $name       value
+    | Set Suite Variable    \${name}    value
+
+    A problem with using the normal ``${variable}`` syntax is that these
+    keywords cannot easily know is the idea to create a variable with exactly
+    that name or does that variable actually contain the name of the variable
+    to create. If the variable does not initially exist, it will always be
+    created. If it exists and its value is a variable name either in the normal
+    or in the escaped syntax, variable with _that_ name is created instead.
+    For example, if ``${name}`` variable would exist and contain value
+    ``$example``, these examples would create different variables:
+
+    | Set Suite Variable    ${name}     value    # Creates ${example}.
+    | Set Suite Variable    $name       value    # Creates ${name}.
+    | Set Suite Variable    \${name}    value    # Creates ${name}.
+
+    Because the behavior when using the normal ``${variable}`` syntax depends
+    on the possible existing value of the variable, it is *highly recommended
+    to use the escaped ``$variable`` or ``\${variable}`` format instead*.
+
+    This same problem occurs also with special keywords for accessing variables
+    `Get Variable Value`, `Variable Should Exist` and `Variable Should Not Exist`.
+
+    *NOTE:* It is recommended to use the ``VAR`` syntax introduced in Robot
+    Framework 7.0 for creating variables in different scopes instead of the
+    `Set Global/Suite/Test/Local Variable` keywords. It makes creating variables
+    uniform and avoids all the problems discussed above.
 
     = Boolean arguments =
 

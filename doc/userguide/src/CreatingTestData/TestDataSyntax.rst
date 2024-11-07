@@ -118,7 +118,7 @@ the :file:`.robot.rst` extension are parsed by default. If you would
 rather use just :file:`.rst` or :file:`.rest` extension, that needs to be
 configured separately.
 
-Robot Framework data can also be created in `JSON format`_ that is targeted
+Robot Framework data can also be created in the `JSON format`_ that is targeted
 more for tool developers than normal Robot Framework users. Only JSON files
 with the custom :file:`.rbt` extension are parsed by default.
 
@@ -318,7 +318,7 @@ when processing files using reStructuredText tooling normally.
 JSON format
 ~~~~~~~~~~~
 
-Robot Framework supports data also in JSON_ format. This format is designed
+Robot Framework supports data also in the JSON_ format. This format is designed
 more for tool developers than for regular Robot Framework users and it is not
 meant to be edited manually. Its most important use cases are:
 
@@ -430,16 +430,14 @@ directory after the suite is recreated:
    suite = TestSuite.from_json('data.rbt')
    suite.adjust_source(root='/new/path/to')
 
-__ https://robot-framework.readthedocs.io/en/master/autodoc/robot.running.html#robot.running.model.TestSuite.adjust_source
+__ https://robot-framework.readthedocs.io/en/master/autodoc/robot.model.html#robot.model.testsuite.TestSuite.adjust_source
 
 JSON structure
 ''''''''''''''
 
 Imports, variables and keywords created in suite files are included in the
 generated JSON along with tests and tasks. The exact JSON structure is documented
-in the :file:`running.json` `schema file`__.
-
-__ https://github.com/robotframework/robotframework/tree/master/doc/schema#readme
+in the :file:`running.json` `schema file`_.
 
 Rules for parsing the data
 --------------------------
@@ -772,6 +770,8 @@ to see the actual translations:
 - `French (fr)`_
 - `Hindi (hi)`_
 - `Italian (it)`_
+- `Japanese (ja)`_
+- `Korean (ko)`_
 - `Dutch (nl)`_
 - `Polish (pl)`_
 - `Portuguese (pt)`_
@@ -839,3 +839,35 @@ the `#localization` channel on our Slack_.
 
 __ https://robotframework.crowdin.com
 __ https://github.com/MarketSquare/localization
+
+Style
+-----
+
+Robot Framework syntax creates a simple programming language, and similarly as with
+other languages, it is important to think about the coding style. Robot Framework
+syntax is pretty flexible on purpose, but there are some generally recommended
+conventions:
+
+- Four space indentation.
+- Four space separation between keywords and arguments, settings and their values, etc...
+  In some cases it makes sense to use more than four spaces.
+  For example when aligning values in the Settings or Variables section or
+  in `data-driven style`_.
+- Global variables_ using capital letters like `${EXAMPLE}` and local variables
+  using lower-case letters like `${example}`.
+- Consistency within a single file and preferably within the whole project.
+
+One case where there currently is no strong convention is keyword capitalization.
+Robot Framework itself typically uses title case like :name:`Example Keyword` in
+documentation and elsewhere, and this style is often used in Robot Framework data
+as well. It does not work too well with longer, sentence-like keywords such as
+:name:`Log into system as an admin`, though.
+
+Teams and organizations using Robot Framework should have their own coding standards.
+The community developed `Robot Framework Style Guide`__ is an excellent
+starting point that can be amended as needed. It is also possible to enforce these
+conventions by using the Robocop__ linter and the Robotidy__ code formatter.
+
+__ https://docs.robotframework.org/docs/style_guide
+__ https://robocop.readthedocs.io/
+__ https://robotidy.readthedocs.io/

@@ -36,16 +36,14 @@ __ http://robotframework.org/robotframework/latest/RobotFrameworkUserGuide.html#
 
 import warnings
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence, TYPE_CHECKING, Union
+from typing import Any, Literal, Mapping, Sequence, TYPE_CHECKING, TypeVar, Union
 
 from robot import model
 from robot.conf import RobotSettings
 from robot.errors import BreakLoop, ContinueLoop, DataError, ReturnFromKeyword, VariableError
-from robot.model import BodyItem, create_fixture, DataDict, ModelObject, TestSuites
+from robot.model import BodyItem, DataDict, TestSuites
 from robot.output import LOGGER, Output, pyloggingconf
-from robot.result import (Break as BreakResult, Continue as ContinueResult,
-                          Error as ErrorResult, Return as ReturnResult, Var as VarResult)
-from robot.utils import setter
+from robot.utils import format_assign_message, setter
 from robot.variables import VariableResolver
 
 from .bodyrunner import ForRunner, IfRunner, KeywordRunner, TryRunner, WhileRunner
@@ -55,15 +53,22 @@ from .statusreporter import StatusReporter
 if TYPE_CHECKING:
     from robot.parsing import File
     from .builder import TestDefaults
+    from .resourcemodel import ResourceFile, UserKeyword
 
 
+IT = TypeVar('IT', bound='IfBranch|TryBranch')
 BodyItemParent = Union['TestSuite', 'TestCase', 'UserKeyword', 'For', 'If', 'IfBranch',
                        'Try', 'TryBranch', 'While', None]
 
 
 class Body(model.BaseBody['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
                           'Continue', 'Break', 'model.Message', 'Error']):
-    __slots__ = []
+    __slots__ = ()
+
+
+class Branches(model.BaseBranches['Keyword', 'For', 'While', 'If', 'Try', 'Var', 'Return',
+                                  'Continue', 'Break', 'model.Message', 'Error', IT]):
+    __slots__ = ()
 
 
 class WithSource:
@@ -73,6 +78,35 @@ class WithSource:
     @property
     def source(self) -> 'Path|None':
         return self.parent.source if self.parent is not None else None
+
+
+class Argument:
+    """A temporary API for creating named arguments with non-string values.
+
+    This class was added in RF 7.0.1 (#5031) after a failed attempt to add a public
+    API for this purpose in RF 7.0 (#5000). A better public API that allows passing
+    named arguments separately was added in RF 7.1 (#5143).
+
+    If you need to support also RF 7.0, you can pass named arguments as two-item tuples
+    like `(name, value)` and positional arguments as one-item tuples like `(value,)`.
+    That approach does not work anymore in RF 7.0.1, though, so the code needs to be
+    conditional depending on Robot Framework version.
+
+    The main limitation of this class is that it is not compatible with the JSON model.
+    The current plan is to remove this in the future, possibly already in RF 8.0, but
+    we can consider preserving it if it turns out to be useful.
+    """
+
+    def __init__(self, name: 'str|None', value: Any):
+        """
+        :param name: Argument name. If ``None``, argument is considered positional.
+        :param value: Argument value.
+        """
+        self.name = name
+        self.value = value
+
+    def __str__(self):
+        return str(self.value) if self.name is None else f'{self.name}={self.value}'
 
 
 @Body.register
@@ -87,26 +121,53 @@ class Keyword(model.Keyword, WithSource):
 
     The actual keyword that is executed depends on the context where this model
     is executed.
+
+    Arguments originating from normal Robot Framework data are stored in the
+    :attr:`args` attribute as a tuple of strings in the exact same format as in
+    the data. This means that arguments can have variables and escape characters,
+    and that named arguments are specified using the ``name=value`` syntax.
+
+    When creating keywords programmatically, it is possible to set :attr:`named_args`
+    separately and use :attr:`args` only for positional arguments. Argument values
+    do not need to be strings, but also in this case strings can contain variables
+    and normal Robot Framework escaping rules must be taken into account.
     """
-    __slots__ = ['lineno']
+    __slots__ = ['named_args', 'lineno']
 
     def __init__(self, name: str = '',
-                 args: Sequence[str] = (),
+                 args: 'Sequence[str|Argument|Any]' = (),
+                 named_args: 'Mapping[str, Any]|None' = None,
                  assign: Sequence[str] = (),
                  type: str = BodyItem.KEYWORD,
                  parent: BodyItemParent = None,
                  lineno: 'int|None' = None):
         super().__init__(name, args, assign, type, parent)
+        self.named_args = named_args
         self.lineno = lineno
 
     def to_dict(self) -> DataDict:
         data = super().to_dict()
+        if self.named_args is not None:
+            data['named_args'] = self.named_args
         if self.lineno:
             data['lineno'] = self.lineno
         return data
 
-    def run(self, context, run=True, templated=None):
-        return KeywordRunner(context, run).run(self)
+    def run(self, result, context, run=True, templated=None):
+        return KeywordRunner(context, run).run(self, result.body.create_keyword())
+
+
+class ForIteration(model.ForIteration, WithSource):
+    __slots__ = ('lineno', 'error')
+    body_class = Body
+
+    def __init__(self, assign: 'Mapping[str, str]|None' = None,
+                 parent: BodyItemParent = None,
+                 lineno: 'int|None' = None,
+                 error: 'str|None' = None):
+        super().__init__(assign, parent)
+        self.lineno = lineno
+        self.error = error
 
 
 @Body.register
@@ -142,8 +203,27 @@ class For(model.For, WithSource):
             data['error'] = self.error
         return data
 
-    def run(self, context, run=True, templated=False):
-        return ForRunner(context, self.flavor, run, templated).run(self)
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_for(self.assign, self.flavor, self.values,
+                                        self.start, self.mode, self.fill)
+        return ForRunner(context, self.flavor, run, templated).run(self, result)
+
+    def get_iteration(self, assign: 'Mapping[str, str]|None' = None) -> ForIteration:
+        iteration = ForIteration(assign, self, self.lineno, self.error)
+        iteration.body = [item.to_dict() for item in self.body]
+        return iteration
+
+
+class WhileIteration(model.WhileIteration, WithSource):
+    __slots__ = ('lineno', 'error')
+    body_class = Body
+
+    def __init__(self, parent: BodyItemParent = None,
+                 lineno: 'int|None' = None,
+                 error: 'str|None' = None):
+        super().__init__(parent)
+        self.lineno = lineno
+        self.error = error
 
 
 @Body.register
@@ -170,13 +250,20 @@ class While(model.While, WithSource):
             data['error'] = self.error
         return data
 
-    def run(self, context, run=True, templated=False):
-        return WhileRunner(context, run, templated).run(self)
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_while(self.condition, self.limit, self.on_limit,
+                                          self.on_limit_message)
+        return WhileRunner(context, run, templated).run(self, result)
+
+    def get_iteration(self) -> WhileIteration:
+        iteration = WhileIteration(self, self.lineno, self.error)
+        iteration.body = [item.to_dict() for item in self.body]
+        return iteration
 
 
 class IfBranch(model.IfBranch, WithSource):
-    __slots__ = ['lineno']
     body_class = Body
+    __slots__ = ['lineno']
 
     def __init__(self, type: str = BodyItem.IF,
                  condition: 'str|None' = None,
@@ -194,8 +281,9 @@ class IfBranch(model.IfBranch, WithSource):
 
 @Body.register
 class If(model.If, WithSource):
-    __slots__ = ['lineno', 'error']
     branch_class = IfBranch
+    branches_class = Branches[branch_class]
+    __slots__ = ['lineno', 'error']
 
     def __init__(self, parent: BodyItemParent = None,
                  lineno: 'int|None' = None,
@@ -204,8 +292,8 @@ class If(model.If, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        return IfRunner(context, run, templated).run(self)
+    def run(self, result, context, run=True, templated=False):
+        return IfRunner(context, run, templated).run(self, result.body.create_if())
 
     def to_dict(self) -> DataDict:
         data = super().to_dict()
@@ -217,8 +305,8 @@ class If(model.If, WithSource):
 
 
 class TryBranch(model.TryBranch, WithSource):
-    __slots__ = ['lineno']
     body_class = Body
+    __slots__ = ['lineno']
 
     def __init__(self, type: str = BodyItem.TRY,
                  patterns: Sequence[str] = (),
@@ -245,8 +333,9 @@ class TryBranch(model.TryBranch, WithSource):
 
 @Body.register
 class Try(model.Try, WithSource):
-    __slots__ = ['lineno', 'error']
     branch_class = TryBranch
+    branches_class = Branches[branch_class]
+    __slots__ = ['lineno', 'error']
 
     def __init__(self, parent: BodyItemParent = None,
                  lineno: 'int|None' = None,
@@ -255,8 +344,8 @@ class Try(model.Try, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        return TryRunner(context, run, templated).run(self)
+    def run(self, result, context, run=True, templated=False):
+        return TryRunner(context, run, templated).run(self, result.body.create_try())
 
     def to_dict(self) -> DataDict:
         data = super().to_dict()
@@ -282,34 +371,42 @@ class Var(model.Var, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        result = VarResult(self.name, self.value, self.scope, self.separator)
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_var(self.name, self.value, self.scope, self.separator)
         with StatusReporter(self, result, context, run):
-            if run:
-                if self.error:
-                    raise DataError(self.error, syntax=True)
-                if not context.dry_run:
-                    scope = self._get_scope(context.variables)
-                    setter = getattr(context.variables, f'set_{scope}')
-                    try:
-                        resolver = VariableResolver.from_variable(self)
-                        setter(self.name, resolver.resolve(context.variables))
-                    except DataError as err:
-                        raise VariableError(f"Setting variable '{self.name}' failed: {err}")
+            if self.error and run:
+                raise DataError(self.error, syntax=True)
+            if not run or context.dry_run:
+                return
+            scope, config = self._get_scope(context.variables)
+            set_variable = getattr(context.variables, f'set_{scope}')
+            try:
+                name, value = self._resolve_name_and_value(context.variables)
+                set_variable(name, value, **config)
+                context.info(format_assign_message(name, value))
+            except DataError as err:
+                raise VariableError(f"Setting variable '{self.name}' failed: {err}")
 
     def _get_scope(self, variables):
         if not self.scope:
-            return 'local'
+            return 'local', {}
         try:
             scope = variables.replace_string(self.scope)
             if scope.upper() == 'TASK':
-                return 'test'
-            if scope.upper() in ('GLOBAL', 'SUITE', 'TEST', 'LOCAL'):
-                return scope.lower()
+                return 'test', {}
+            if scope.upper() == 'SUITES':
+                return 'suite', {'children': True}
+            if scope.upper() in ('LOCAL', 'TEST', 'SUITE', 'GLOBAL'):
+                return scope.lower(), {}
             raise DataError(f"Value '{scope}' is not accepted. Valid values are "
-                            f"'GLOBAL', 'SUITE', 'TEST', 'TASK' and 'LOCAL'.")
+                            f"'LOCAL', 'TEST', 'TASK', 'SUITE', 'SUITES' and 'GLOBAL'.")
         except DataError as err:
             raise DataError(f"Invalid VAR scope: {err}")
+
+    def _resolve_name_and_value(self, variables):
+        name = self.name[:2] + variables.replace_string(self.name[2:-1]) + '}'
+        value = VariableResolver.from_variable(self).resolve(variables)
+        return name, value
 
     def to_dict(self) -> DataDict:
         data = super().to_dict()
@@ -332,8 +429,9 @@ class Return(model.Return, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        with StatusReporter(self, ReturnResult(self.values), context, run):
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_return(self.values)
+        with StatusReporter(self, result, context, run):
             if run:
                 if self.error:
                     raise DataError(self.error, syntax=True)
@@ -360,8 +458,9 @@ class Continue(model.Continue, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        with StatusReporter(self, ContinueResult(), context, run):
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_continue()
+        with StatusReporter(self, result, context, run):
             if run:
                 if self.error:
                     raise DataError(self.error, syntax=True)
@@ -388,8 +487,9 @@ class Break(model.Break, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        with StatusReporter(self, BreakResult(), context, run):
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_break()
+        with StatusReporter(self, result, context, run):
             if run:
                 if self.error:
                     raise DataError(self.error, syntax=True)
@@ -417,8 +517,9 @@ class Error(model.Error, WithSource):
         self.lineno = lineno
         self.error = error
 
-    def run(self, context, run=True, templated=False):
-        with StatusReporter(self, ErrorResult(self.values), context, run):
+    def run(self, result, context, run=True, templated=False):
+        result = result.body.create_error(self.values)
+        with StatusReporter(self, result, context, run):
             if run:
                 raise DataError(self.error)
 
@@ -486,13 +587,17 @@ class TestSuite(model.TestSuite[Keyword, TestCase]):
         #: :class:`ResourceFile` instance containing imports, variables and
         #: keywords the suite owns. When data is parsed from the file system,
         #: this data comes from the same test case file that creates the suite.
-        self.resource = ResourceFile(parent=self)
+        self.resource = None
 
     @setter
-    def resource(self, resource: 'ResourceFile|dict') -> 'ResourceFile':
+    def resource(self, resource: 'ResourceFile|dict|None') -> 'ResourceFile':
+        from .resourcemodel import ResourceFile
+
+        if resource is None:
+            resource = ResourceFile()
         if isinstance(resource, dict):
             resource = ResourceFile.from_dict(resource)
-            resource.parent = self
+        resource.owner = self
         return resource
 
     @classmethod
@@ -575,7 +680,7 @@ class TestSuite(model.TestSuite[Keyword, TestCase]):
 
         Example::
 
-            suite.configure(included_tags=['smoke'],
+            suite.configure(include_tags=['smoke'],
                             doc='Smoke test results.')
 
         Not to be confused with :meth:`config` method that suites, tests,
@@ -675,350 +780,3 @@ class TestSuite(model.TestSuite[Keyword, TestCase]):
         data = super().to_dict()
         data['resource'] = self.resource.to_dict()
         return data
-
-
-class Variable(ModelObject):
-    repr_args = ('name', 'value', 'separator')
-
-    def __init__(self, name: str = '',
-                 value: Sequence[str] = (),
-                 separator: 'str|None' = None,
-                 parent: 'ResourceFile|None' = None,
-                 lineno: 'int|None' = None,
-                 error: 'str|None' = None):
-        self.name = name
-        self.value = tuple(value)
-        self.separator = separator
-        self.parent = parent
-        self.lineno = lineno
-        self.error = error
-
-    @property
-    def source(self) -> 'Path|None':
-        return self.parent.source if self.parent is not None else None
-
-    def report_error(self, message: str, level: str = 'ERROR'):
-        source = self.source or '<unknown>'
-        line = f' on line {self.lineno}' if self.lineno else ''
-        LOGGER.write(f"Error in file '{source}'{line}: "
-                     f"Setting variable '{self.name}' failed: {message}", level)
-
-    def to_dict(self) -> DataDict:
-        data = {'name': self.name, 'value': self.value}
-        if self.lineno:
-            data['lineno'] = self.lineno
-        if self.error:
-            data['error'] = self.error
-        return data
-
-
-class ResourceFile(ModelObject):
-    repr_args = ('source',)
-    __slots__ = ('_source', 'parent', 'doc')
-
-    def __init__(self, source: 'Path|str|None' = None,
-                 parent: 'TestSuite|None' = None,
-                 doc: str = ''):
-        self.source = source
-        self.parent = parent
-        self.doc = doc
-        self.imports = []
-        self.variables = []
-        self.keywords = []
-
-    @property
-    def source(self) -> 'Path|None':
-        if self._source:
-            return self._source
-        if self.parent:
-            return self.parent.source
-        return None
-
-    @source.setter
-    def source(self, source: 'Path|str|None'):
-        if isinstance(source, str):
-            source = Path(source)
-        self._source = source
-
-    @setter
-    def imports(self, imports: Sequence['Import']) -> 'Imports':
-        return Imports(self, imports)
-
-    @setter
-    def variables(self, variables: Sequence['Variable']) -> 'Variables':
-        return Variables(self, variables)
-
-    @setter
-    def keywords(self, keywords: Sequence['UserKeyword']) -> 'UserKeywords':
-        return UserKeywords(self, keywords)
-
-    @classmethod
-    def from_file_system(cls, path: 'Path|str', **config) -> 'ResourceFile':
-        """Create a :class:`ResourceFile` object based on the give ``path``.
-
-        :param path: File path where to read the data from.
-        :param config: Configuration parameters for :class:`~.builders.ResourceFileBuilder`
-            class that is used internally for building the suite.
-
-        New in Robot Framework 6.1. See also :meth:`from_string` and :meth:`from_model`.
-        """
-        from .builder import ResourceFileBuilder
-        return ResourceFileBuilder(**config).build(path)
-
-    @classmethod
-    def from_string(cls, string: str, **config) -> 'ResourceFile':
-        """Create a :class:`ResourceFile` object based on the given ``string``.
-
-        :param string: String to create the resource file from.
-        :param config: Configuration parameters for
-             :func:`~robot.parsing.parser.parser.get_resource_model` used internally.
-
-        New in Robot Framework 6.1. See also :meth:`from_file_system` and
-        :meth:`from_model`.
-        """
-        from robot.parsing import get_resource_model
-        model = get_resource_model(string, data_only=True, **config)
-        return cls.from_model(model)
-
-    @classmethod
-    def from_model(cls, model: 'File') -> 'ResourceFile':
-        """Create a :class:`ResourceFile` object based on the given ``model``.
-
-        :param model: Model to create the suite from.
-
-        The model can be created by using the
-        :func:`~robot.parsing.parser.parser.get_resource_model` function and possibly
-        modified by other tooling in the :mod:`robot.parsing` module.
-
-        New in Robot Framework 6.1. See also :meth:`from_file_system` and
-        :meth:`from_string`.
-        """
-        from .builder import RobotParser
-        return RobotParser().parse_resource_model(model)
-
-    def to_dict(self) -> DataDict:
-        data = {}
-        if self._source:
-            data['source'] = str(self._source)
-        if self.doc:
-            data['doc'] = self.doc
-        if self.imports:
-            data['imports'] = self.imports.to_dicts()
-        if self.variables:
-            data['variables'] = self.variables.to_dicts()
-        if self.keywords:
-            data['keywords'] = self.keywords.to_dicts()
-        return data
-
-
-class UserKeyword(ModelObject):
-    repr_args = ('name', 'args')
-    fixture_class = Keyword
-    __slots__ = ['name', 'args', 'doc', 'return_', 'timeout', 'lineno', 'parent',
-                 'error', '_setup', '_teardown']
-
-    def __init__(self, name: str = '',
-                 args: Sequence[str] = (),
-                 doc: str = '',
-                 tags: Sequence[str] = (),
-                 return_: Sequence[str] = (),
-                 timeout: 'str|None' = None,
-                 lineno: 'int|None' = None,
-                 parent: 'ResourceFile|None' = None,
-                 error: 'str|None' = None):
-        self.name = name
-        self.args = tuple(args)
-        self.doc = doc
-        self.tags = tags
-        self.return_ = tuple(return_)
-        self.timeout = timeout
-        self.lineno = lineno
-        self.parent = parent
-        self.error = error
-        self.body = []
-        self._setup = None
-        self._teardown = None
-
-    @setter
-    def body(self, body: 'Sequence[BodyItem|DataDict]') -> Body:
-        return Body(self, body)
-
-    @property
-    def setup(self) -> Keyword:
-        """User keyword setup as a :class:`Keyword` object.
-
-        New in Robot Framework 7.0.
-        """
-        if self._setup is None:
-            self.setup = None
-        return self._setup
-
-    @setup.setter
-    def setup(self, setup: 'Keyword|DataDict|None'):
-        self._setup = create_fixture(self.fixture_class, setup, self, Keyword.SETUP)
-
-    @property
-    def has_setup(self) -> bool:
-        """Check does a keyword have a setup without creating a setup object.
-
-        See :attr:`has_teardown` for more information. New in Robot Framework 7.0.
-        """
-        return bool(self._setup)
-
-    @property
-    def teardown(self) -> Keyword:
-        """User keyword teardown as a :class:`Keyword` object."""
-        if self._teardown is None:
-            self.teardown = None
-        return self._teardown
-
-    @teardown.setter
-    def teardown(self, teardown: 'Keyword|DataDict|None'):
-        self._teardown = create_fixture(self.fixture_class, teardown, self, Keyword.TEARDOWN)
-
-    @property
-    def has_teardown(self) -> bool:
-        """Check does a keyword have a teardown without creating a teardown object.
-
-        A difference between using ``if kw.has_teardown:`` and ``if kw.teardown:``
-        is that accessing the :attr:`teardown` attribute creates a :class:`Keyword`
-        object representing the teardown even when the user keyword actually does
-        not have one. This can have an effect on memory usage.
-
-        New in Robot Framework 6.1.
-        """
-        return bool(self._teardown)
-
-    @setter
-    def tags(self, tags: Sequence[str]) -> model.Tags:
-        return model.Tags(tags)
-
-    @property
-    def source(self) -> 'Path|None':
-        return self.parent.source if self.parent is not None else None
-
-    def to_dict(self) -> DataDict:
-        data: DataDict = {'name': self.name}
-        for name, value in [('args', self.args),
-                            ('doc', self.doc),
-                            ('tags', tuple(self.tags)),
-                            ('return_', self.return_),
-                            ('timeout', self.timeout),
-                            ('lineno', self.lineno),
-                            ('error', self.error)]:
-            if value:
-                data[name] = value
-        if self.has_setup:
-            data['setup'] = self.setup.to_dict()
-        data['body'] = self.body.to_dicts()
-        if self.has_teardown:
-            data['teardown'] = self.teardown.to_dict()
-        return data
-
-
-class Import(ModelObject):
-    repr_args = ('type', 'name', 'args', 'alias')
-    LIBRARY = 'LIBRARY'
-    RESOURCE = 'RESOURCE'
-    VARIABLES = 'VARIABLES'
-
-    def __init__(self, type: Literal['LIBRARY', 'RESOURCE', 'VARIABLES'],
-                 name: str,
-                 args: Sequence[str] = (),
-                 alias: 'str|None' = None,
-                 parent: 'ResourceFile|None' = None,
-                 lineno: 'int|None' = None):
-        if type not in (self.LIBRARY, self.RESOURCE, self.VARIABLES):
-            raise ValueError(f"Invalid import type: Expected '{self.LIBRARY}', "
-                             f"'{self.RESOURCE}' or '{self.VARIABLES}', got '{type}'.")
-        self.type = type
-        self.name = name
-        self.args = tuple(args)
-        self.alias = alias
-        self.parent = parent
-        self.lineno = lineno
-
-    @property
-    def source(self) -> 'Path|None':
-        return self.parent.source if self.parent is not None else None
-
-    @property
-    def directory(self) -> 'Path|None':
-        source = self.source
-        return source.parent if source and not source.is_dir() else source
-
-    @property
-    def setting_name(self) -> str:
-        return self.type.title()
-
-    def select(self, library: Any, resource: Any, variables: Any) -> Any:
-        return {self.LIBRARY: library,
-                self.RESOURCE: resource,
-                self.VARIABLES: variables}[self.type]
-
-    def report_error(self, message: str, level: str = 'ERROR'):
-        source = self.source or '<unknown>'
-        line = f' on line {self.lineno}' if self.lineno else ''
-        LOGGER.write(f"Error in file '{source}'{line}: {message}", level)
-
-    @classmethod
-    def from_dict(cls, data) -> 'Import':
-        return cls(**data)
-
-    def to_dict(self) -> DataDict:
-        data: DataDict = {'type': self.type, 'name': self.name}
-        if self.args:
-            data['args'] = self.args
-        if self.alias:
-            data['alias'] = self.alias
-        if self.lineno:
-            data['lineno'] = self.lineno
-        return data
-
-    def _include_in_repr(self, name: str, value: Any) -> bool:
-        return name in ('type', 'name') or value
-
-
-class Imports(model.ItemList):
-
-    def __init__(self, parent: ResourceFile, imports: Sequence[Import] = ()):
-        super().__init__(Import, {'parent': parent}, items=imports)
-
-    def library(self, name: str, args: Sequence[str] = (), alias: 'str|None' = None,
-                lineno: 'int|None' = None) -> Import:
-        """Create library import."""
-        return self.create(Import.LIBRARY, name, args, alias, lineno=lineno)
-
-    def resource(self, name: str, lineno: 'int|None' = None) -> Import:
-        """Create resource import."""
-        return self.create(Import.RESOURCE, name, lineno=lineno)
-
-    def variables(self, name: str, args: Sequence[str] = (),
-                  lineno: 'int|None' = None) -> Import:
-        """Create variables import."""
-        return self.create(Import.VARIABLES, name, args, lineno=lineno)
-
-    def create(self, *args, **kwargs) -> Import:
-        """Generic method for creating imports.
-
-        Import type specific methods :meth:`library`, :meth:`resource` and
-        :meth:`variables` are recommended over this method.
-        """
-        # RF 6.1 changed types to upper case. Code below adds backwards compatibility.
-        if args:
-            args = (args[0].upper(),) + args[1:]
-        elif 'type' in kwargs:
-            kwargs['type'] = kwargs['type'].upper()
-        return super().create(*args, **kwargs)
-
-
-class Variables(model.ItemList[Variable]):
-
-    def __init__(self, parent: ResourceFile, variables: Sequence[Variable] = ()):
-        super().__init__(Variable, {'parent': parent}, items=variables)
-
-
-class UserKeywords(model.ItemList[UserKeyword]):
-
-    def __init__(self, parent: ResourceFile, keywords: Sequence[UserKeyword] = ()):
-        super().__init__(UserKeyword, {'parent': parent}, items=keywords)

@@ -18,6 +18,9 @@ Parameterized tuple
 Homogenous tuple
     Check Test Case    ${TESTNAME}
 
+Literal
+    Check Test Case    ${TESTNAME}
+
 Union
     Check Test Case    ${TESTNAME}
 
@@ -25,6 +28,9 @@ Nested
     Check Test Case    ${TESTNAME}
 
 Aliases
+    Check Test Case    ${TESTNAME}
+
+TypedDict items
     Check Test Case    ${TESTNAME}
 
 Invalid
@@ -36,5 +42,5 @@ Invalid
 Bad parameters
     Check Test Case    ${TESTNAME}
     Check Log Message    ${ERRORS[0]}
-    ...    Error in library 'StringlyTypes': Adding keyword 'bad_params' failed: 'list[]' requires exactly 1 argument, 'list[int, str]' has 2.
+    ...    Error in library 'StringlyTypes': Adding keyword 'bad_params' failed: 'list[]' requires exactly 1 parameter, 'list[int, str]' has 2.
     ...    ERROR

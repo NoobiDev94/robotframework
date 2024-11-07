@@ -18,11 +18,20 @@ ${PUREPATH}              ${{pathlib.PurePath('x/y')}}
 Integer
     Integer              42                        42
     Integer              -1                        -1
+    Integer              0                         0
+    Integer              -0                        0
     Integer              9999999999999999999999    9999999999999999999999
     Integer              123 456 789               123456789
     Integer              123_456_789               123456789
     Integer              - 123 456 789             -123456789
     Integer              -_123_456_789             -123456789
+    Integer              42.0                      42
+    Integer              -1.00000                  -1
+    Integer              0.0                       0
+    Integer              -0.0                      0
+    Integer              1e1000                    10**1000
+    Integer              -1.23E4                   -12300
+    Integer              100_e_-_2                 1
     Integer              ${41}                     41
     Integer              ${-4.0}                   -4
 
@@ -63,8 +72,11 @@ Integer as binary
 Invalid integer
     [Template]           Conversion Should Fail
     Integer              foobar
-    Integer              1.0
+    Integer              NaN
+    Integer              inf
     Integer              0xINVALID
+    Integer              1.1                       error=Conversion would lose precision.
+    Integer              1e-1000                   error=Conversion would lose precision.
     Integer              0o8
     Integer              0b2
     Integer              00b1
@@ -74,12 +86,13 @@ Invalid integer
 Integral (abc)
     Integral             42                        42
     Integral             -1                        -1
+    Integral             1.0                       1
     Integral             999_999 999_999 999       999999999999999
 
 Invalid integral (abc)
     [Template]           Conversion Should Fail
     Integral             foobar                    type=integer
-    Integral             1.0                       type=integer
+    Integral             inf                       type=integer
     Integral             ${LIST}                   type=integer    arg_type=list
 
 Float
@@ -179,21 +192,6 @@ Invalid bytes
     Bytes                Hyvä esimerkki! \u2603    error=Character '\u2603' cannot be mapped to a byte.
     Bytes                ${1.3}                    arg_type=float
 
-Bytestring
-    Bytestring           foo                       b'foo'
-    Bytestring           \x00\x01\xFF\u00FF        b'\\x00\\x01\\xFF\\xFF'
-    Bytestring           Hyvä esimerkki!           b'Hyv\\xE4 esimerkki!'
-    Bytestring           None                      b'None'
-    Bytestring           NONE                      b'NONE'
-    Bytestring           ${{b'foo'}}               b'foo'
-    Bytestring           ${{bytearray(b'foo')}}    bytearray(b'foo')
-
-Invalid bytesstring
-    [Template]           Conversion Should Fail
-    Bytestring           \u0100                    type=bytes            error=Character '\u0100' cannot be mapped to a byte.
-    Bytestring           \u00ff\u0100\u0101        type=bytes            error=Character '\u0100' cannot be mapped to a byte.
-    Bytestring           Hyvä esimerkki! \u2603    type=bytes            error=Character '\u2603' cannot be mapped to a byte.
-
 Bytearray
     Bytearray            foo                       bytearray(b'foo')
     Bytearray            \x00\x01\xFF\u00FF        bytearray(b'\\x00\\x01\\xFF\\xFF')
@@ -209,6 +207,19 @@ Invalid bytearray
     Bytearray            \u00ff\u0100\u0101        error=Character '\u0100' cannot be mapped to a byte.
     Bytearray            Hyvä esimerkki! \u2603    error=Character '\u2603' cannot be mapped to a byte.
     Bytearray            ${2123.1021}              arg_type=float
+
+Bytestring replacement
+    [Documentation]    ``collections.abc.ByteString`` that we earlier supported was deprecated
+    ...                and we removed its support. ``bytes | bytearray`` can be used instead.
+    ...                FAIL
+    ...                ValueError: Argument 'argument' got value 'Ā' that cannot be converted to bytes or bytearray.
+    [Template]         Bytestring replacement
+    foo                       b'foo'
+    \x00\x01\xFF\u00FF        b'\\x00\\x01\\xFF\\xFF'
+    None                      b'None'
+    ${{b'foo'}}               b'foo'
+    ${{bytearray(b'foo')}}    bytearray(b'foo')
+    \u0100
 
 Datetime
     DateTime             2014-06-11T10:07:42       datetime(2014, 6, 11, 10, 7, 42)
@@ -312,6 +323,8 @@ Normalized enum member match
     Enum                 normalize_me              MyEnum.normalize_me
     Enum                 normalize me              MyEnum.normalize_me
     Enum                 Normalize Me              MyEnum.normalize_me
+    Enum                 normalize-me              MyEnum.normalize_me
+    Enum                 n-o-r-m-a-l-i-z-e---ME    MyEnum.normalize_me
     Flag                 red                       MyFlag.RED
     IntEnum              on                        MyIntEnum.ON
     IntFlag              x                         MyIntFlag.X
@@ -531,7 +544,7 @@ Positional as named
 
 Invalid positional as named
     [Template]           Conversion Should Fail
-    Integer              argument=1.0
+    Integer              argument=bad
     Float                argument=xxx
     Dictionary           argument=[0]                                    error=Value is list, not dict.
 

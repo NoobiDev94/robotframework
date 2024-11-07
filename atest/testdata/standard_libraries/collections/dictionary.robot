@@ -110,184 +110,6 @@ Get From Dictionary With Default
     ${value} =    Get From Dictionary    ${dict}    a     default_value
     Should Be Equal    ${value}    a
 
-Dictionary Should Contain Key
-    Dictionary Should Contain Key    ${D3}    a
-
-Dictionary Should Contain Key With Missing Key 1
-    [Documentation]    FAIL Dictionary does not contain key 'x'.
-    Dictionary Should Contain Key    ${D3}    x
-
-Dictionary Should Contain Key With Missing Key 2
-    [Documentation]    FAIL Dictionary does not contain key '(1, 2)'.
-    Dictionary Should Contain Key    ${D3}    ${TUPLE}
-
-Dictionary Should Contain Item
-    Dictionary Should Contain Item    ${D3}    a    ${1}
-
-Dictionary Should Contain Item With Missing Key
-    [Documentation]    FAIL Dictionary does not contain key 'x'.
-    Dictionary Should Contain Item    ${D3}    x    1
-
-Dictionary Should Contain Item With Wrong Value
-    [Documentation]    FAIL Value of dictionary key 'a' does not match: 1 != 2
-    Dictionary Should Contain Item    ${D3}    a    2
-
-Dictionary Should Contain Item With Value Looking Same But With Different Type
-    [Documentation]    FAIL Value of dictionary key 'a' does not match: 1 (integer) != 1 (string)
-    Dictionary Should Contain Item    ${D3}    a    1
-
-Dictionary Should Contain Item With Custom Message
-    [Documentation]    FAIL Custom message
-    Dictionary Should Contain Item    ${D3}    a    1    Custom message
-
-Dictionary Should Not Contain Key
-    Dictionary Should Not Contain Key    ${D3}    x
-    Dictionary Should Not Contain Key    ${D3}    ${TUPLE}
-
-Dictionary Should Not Contain Key With Existing Key
-    [Documentation]    FAIL Dictionary contains key 'b'.
-    Dictionary Should Not Contain Key    ${D3}    b
-
-Dictionary Should (Not) Contain Key Does Not Require `has_key`
-    ${dict} =    Get Dict Without Has Key    name=value
-    Dictionary Should Contain Key    ${dict}    name
-    Dictionary Should Not Contain Key    ${dict}    nonex
-
-Dictionary Should Contain Value
-    Dictionary Should Contain Value    ${D3}    ${2}
-
-Dictionary Should Contain Value With Missing Value 1
-    [Documentation]    FAIL Dictionary does not contain value 'x'.
-    Dictionary Should Contain Value    ${D3}    x
-
-Dictionary Should Contain Value With Missing Value 2
-    [Documentation]    FAIL Dictionary does not contain value '(1, 2)'.
-    Dictionary Should Contain Value    ${D3}    ${TUPLE}
-
-Dictionary Should Not Contain Value
-    Dictionary Should Not Contain Value    ${D3}    x
-    Dictionary Should Not Contain Value    ${D3}    ${TUPLE}
-
-Dictionary Should Not Contain Value With Existing Value
-    [Documentation]    FAIL Dictionary contains value '2'.
-    Dictionary Should Not Contain Value    ${D3}    ${2}
-
-Dictionaries Should Be Equal
-    Dictionaries Should Be Equal    ${D0}    ${D0}
-    Dictionaries Should Be Equal    ${D3}    ${D3}
-    Dictionaries Should Be Equal    ${BIG}    ${BIG}
-
-Dictionaries Of Different Type Should Be Equal
-    ${big2}=    Evaluate    collections.OrderedDict($BIG)    modules=collections
-    Dictionaries Should Be Equal    ${BIG}    ${big2}
-
-Dictionaries Should Equal With First Dictionary Missing Keys
-    [Documentation]    FAIL Following keys missing from first dictionary: 3
-    Dictionaries Should Be Equal    ${D2}    ${D3}
-
-Dictionaries Should Equal With Second Dictionary Missing Keys
-    [Documentation]    FAIL Following keys missing from second dictionary: a, b
-    Dictionaries Should Be Equal    ${D2}    ${D0}
-
-Dictionaries Should Equal With Both Dictionaries Missing Keys
-    [Documentation]    FAIL
-    ...    Following keys missing from first dictionary: c, d
-    ...    Following keys missing from second dictionary: b
-    ${x}    ${y} =    Evaluate    dict(a=1, b=2), dict(a=0, c=3, d=4)
-    Dictionaries Should Be Equal    ${x}    ${y}
-
-Dictionaries Should Be Equal With Different Keys And Own Error Message
-    [Documentation]    FAIL My error message!
-    Dictionaries Should Be Equal    ${D2}    ${D3}    My error message!    NO values
-
-Dictionaries Should Be Equal With Different Keys And Own And Default Error Messages
-    [Documentation]    FAIL
-    ...    My error message!
-    ...    Following keys missing from first dictionary: 3
-    Dictionaries Should Be Equal    ${D2}    ${D3}    My error message!    values=yes
-
-Dictionaries Should Be Equal With Different Values
-    [Documentation]    FAIL
-    ...    Following keys have different values:
-    ...    Key a: 1 (integer) != 1 (string)
-    ...    Key b: 2 != x
-    Dictionaries Should Be Equal    ${D2}    ${D2B}
-
-Dictionaries Should Be Equal With Different Values And Own Error Message
-    [Documentation]    FAIL My error message!
-    Dictionaries Should Be Equal    ${D2}    ${D2B}    My error message!    False
-
-Dictionaries Should Be Equal With Different Values And Own And Default Error Messages
-    [Documentation]    FAIL
-    ...    My error message!
-    ...    Following keys have different values:
-    ...    Key a: 1 (integer) != 1 (string)
-    ...    Key b: 2 != x
-    Dictionaries Should Be Equal    ${D2}    ${D2B}    My error message!
-
-Dictionaries Should Equal With Ignored Keys
-    ${x}    ${y}     ${z} =    Evaluate    dict(a=1, b=2), dict(a=1, b=2, d=4), list('d')
-    Dictionaries Should Be Equal    ${x}    ${y}    ignore_keys=${z}
-
-Dictionaries Should Equal With Ignored Keys And Missing Key
-    [Documentation]    FAIL
-    ...    Following keys missing from first dictionary: c
-    ${x}    ${y}     ${z} =    Evaluate    dict(a=1, b=2), dict(a=1, b=2, c=3, d=4), list('d')
-    Dictionaries Should Be Equal    ${x}    ${y}    ignore_keys=${z}
-
-Dictionaries Should Equal With Ignored Keys And Missing Key And Own Error Message
-    [Documentation]    FAIL My error message!
-    ...    Following keys missing from first dictionary: c
-    ${x}    ${y}     ${z} =    Evaluate    dict(a=1, b=2), dict(a=1, b=2, c=3, d=4), list('d')
-    Dictionaries Should Be Equal    ${x}    ${y}    My error message!    ignore_keys=${z}
-
-Dictionaries Should Equal with non-list ignored keys
-    [Documentation]    FAIL ValueError: 'ignore_keys' must be list-like, got integer.
-    ${x}    ${y} =    Evaluate    dict(a=1, b=2), dict(a=1, b=2, d=4)
-    Dictionaries Should Be Equal    ${x}    ${y}    ignore_keys=42
-
-Dictionaries Should Equal with invalid ignored keys
-    [Documentation]    FAIL STARTS: ValueError: Converting 'ignore_keys' to a list failed: SyntaxError:
-    ${x}    ${y} =    Evaluate    dict(a=1, b=2), dict(a=1, b=2, d=4)
-    Dictionaries Should Be Equal    ${x}    ${y}    ignore_keys=!?#
-
-Dictionary Should Contain Sub Dictionary
-    Dictionary Should Contain Sub Dictionary    ${D3}    ${D2}
-    Dictionary Should Contain Sub Dictionary    ${D3}    ${D0}
-
-Dictionary Should Contain Sub Dictionary With Missing Keys
-    [Documentation]    FAIL Following keys missing from first dictionary: 3
-    Dictionary Should Contain Sub Dictionary    ${D2}    ${D3}
-
-Dictionary Should Contain Sub Dictionary With Missing Keys And Own Error Message
-    [Documentation]    FAIL My error message!
-    Dictionary Should Contain Sub Dictionary    ${D2}    ${D3}    My error message!    False
-
-Dictionary Should Contain Sub Dictionary With Missing Keys And Own And Default Error Message
-    [Documentation]    FAIL
-    ...    My error message!
-    ...    Following keys missing from first dictionary: 3
-    Dictionary Should Contain Sub Dictionary    ${D2}    ${D3}    My error message!
-
-Dictionary Should Contain Sub Dictionary With Different Value
-    [Documentation]    FAIL
-    ...    Following keys have different values:
-    ...    Key a: 1 (integer) != 1 (string)
-    ...    Key b: 2 != x
-    Dictionary Should Contain Sub Dictionary    ${D3}    ${D2B}
-
-Dictionary Should Contain Sub Dictionary With Different Value And Own Error Message
-    [Documentation]    FAIL My error message!
-    Dictionary Should Contain Sub Dictionary    ${D3}    ${D2B}    My error message!    False
-
-Dictionary Should Contain Sub Dictionary With Different Value And Own And Default Error Message
-    [Documentation]    FAIL
-    ...    My error message!
-    ...    Following keys have different values:
-    ...    Key a: 1 (integer) != 1 (string)
-    ...    Key b: 2 != x
-    Dictionary Should Contain Sub Dictionary    ${D3}    ${D2B}    My error message!
-
 Log Dictionary With Different Log Levels
     Log Dictionary    ${D3B}
     Log Dictionary    ${D3B}    tRAce
@@ -344,7 +166,7 @@ Check invalid dictionary argument errors
 Validate invalid argument error
     [Arguments]  ${keyword}    ${argument}=I'm not a dict, I'm a string.    @{args}    ${type}=string    ${position}=1
     Run keyword and expect error
-    ...    TypeError: Expected argument ${position} to be a dictionary or dictionary-like, got ${type} instead.
+    ...    TypeError: Expected argument ${position} to be a dictionary, got ${type} instead.
     ...    ${keyword}    ${argument}    @{args}
 
 Create Dictionaries For Testing
@@ -364,3 +186,7 @@ Create Dictionaries For Testing
     Set Test Variable    \${BIG}
     ${TUPLE} =    Evaluate    (1, 2)
     Set Test Variable    \${TUPLE}
+    ${D4} =    Create Dictionary    a=1    b=2    c=3    d=4    e=5
+    Set Test Variable    \${D4}
+    ${D4B} =    Create Dictionary    d=4    b=2    e=5    a=1    c=3
+    Set Test Variable    \${D4B}

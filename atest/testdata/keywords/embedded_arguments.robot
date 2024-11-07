@@ -114,6 +114,16 @@ Non String Variable Is Accepted With Custom Regexp
     Result of ${40} - ${-2} is ${42}
     I execute "${42}"
 
+Custom regexp with inline flag
+    VAR   ${flag}   flag
+    VAR   ${flng}   fl\ng
+    Custom regexp with ignore-case flag
+    Custom regexp with ignore-case FLAG    expected=FLAG
+    Custom regexp with ignore-case ${flag}
+    Custom regexp with dot-matches-all flag
+    Custom regexp with dot-matches-all ${flag}
+    Custom regexp with dot-matches-all ${flng}    expected=${flng}
+
 Regexp Extensions Are Not Supported
     [Documentation]    FAIL Regexp extensions are not allowed in embedded arguments.
     Regexp extensions like ${x:(?x)re} are not supported
@@ -153,7 +163,7 @@ Embedded Arguments In Resource File Used Explicitly
     Should Be Equal    ${ret}    peke-resource
     embedded_args_in_uk_2.-r1-r2-+r1+
 
-Embedded And Positional Arguments Do Not Work Together
+Keyword with only embedded arguments doesn't accept normal arguments
     [Documentation]    FAIL Keyword 'User \${user} Selects \${item} From Webshop' expected 0 arguments, got 1.
     Given this "usage" with @{EMPTY} works    @{EMPTY}
     Then User Invalid Selects Invalid From Webshop    invalid
@@ -162,14 +172,12 @@ Keyword with embedded args cannot be used as "normal" keyword
     [Documentation]    FAIL Variable '${user}' not found.
     User ${user} Selects ${item} From Webshop
 
-Keyword with both normal and embedded arguments
+Keyword with both embedded and normal arguments
     Number of horses should be    2
+    Number of horses should be    2    swimming
     Number of dogs should be    count=3
 
-Keyword with both normal, positional and embedded arguments
-    Number of horses should be    2    swimming
-
-Keyword with both normal and embedded arguments with too few arguments
+Keyword with both embedded and normal arguments with too few arguments
     [Documentation]    FAIL Keyword 'Number of ${animals} should be' expected 1 to 2 arguments, got 0.
     Number of horses should be
 
@@ -291,8 +299,13 @@ Custom Regexp With ${pattern:\\{}}
 Grouping ${x:Cu(st|ts)(om)?} ${y:Regexp\(?erts\)?}
     RETURN    ${x}-${y}
 
-Regexp extensions like ${x:(?x)re} are not supported
-    This is not executed
+Custom regexp with ignore-case ${flag:(?i)flag}
+    [Arguments]    ${expected}=flag
+    Should Be Equal    ${flag}    ${expected}
+
+Custom regexp with dot-matches-all ${flag:(?sax)f...}
+    [Arguments]    ${expected}=flag
+    Should Be Equal    ${flag}    ${expected}
 
 Invalid ${x:(} Regexp
     This is not executed
@@ -314,4 +327,4 @@ It is totally ${same}
 
 Number of ${animals} should be
     [Arguments]    ${count}    ${activity}=walking
-    Log to console    Checking if ${count} ${animals} are ${activity}
+    Log    ${count} ${animals} are ${activity}

@@ -202,10 +202,16 @@ Lists Should Be Equal With Named Indices As Dictionary With Too Few Values
 Lists Should Be Equal Ignore Order
     Check Test Case    ${TEST NAME}
 
+Ignore Order Is Recursive
+    Check Test Case    ${TEST NAME}
+
 List Should Contain Sub List
     Check Test Case    ${TEST NAME}
 
 List Should Contain Sub List With Missing Values
+    Check Test Case    ${TEST NAME}
+
+List Should Contain Sub List When The Only Missing Value Is Empty String
     Check Test Case    ${TEST NAME}
 
 List Should Contain Sub List With Missing Values And Own Error Message
@@ -328,4 +334,22 @@ List Should Not Contain Value, Value Found and Own Error Message Glob
     Check Test Case    ${TEST NAME}
 
 Check List Error
+    Check Test Case    ${TEST NAME}
+
+Lists Should Be Equal With Ignore Case
+    Check Test Case    ${TEST NAME}
+
+List Should Contain Value With Ignore Case
+    Check Test Case    ${TEST NAME}
+
+List Should Not Contain Value With Ignore Case Does Contain Value
+    Check Test Case    ${TEST NAME}
+
+List Should Contain Sub List With Ignore Case
+    Check Test Case    ${TEST NAME}
+
+List Should Not Contain Duplicates With Ignore Case
+    Check Test Case    ${TEST NAME}
+
+List Should Contain Value With Ignore Case And Nested List and Dictionary
     Check Test Case    ${TEST NAME}

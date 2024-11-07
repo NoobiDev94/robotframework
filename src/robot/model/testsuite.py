@@ -57,7 +57,7 @@ class TestSuite(ModelObject, Generic[KW, TC]):
                  metadata: 'Mapping[str, str]|None' = None,
                  source: 'Path|str|None' = None,
                  rpa: 'bool|None' = False,
-                 parent: 'TestSuite|None' = None):
+                 parent: 'TestSuite[KW, TC]|None' = None):
         self._name = name
         self.doc = doc
         self.metadata = metadata
@@ -418,9 +418,6 @@ class TestSuite(ModelObject, Generic[KW, TC]):
     def visit(self, visitor: SuiteVisitor):
         """:mod:`Visitor interface <robot.model.visitor>` entry-point."""
         visitor.visit_suite(self)
-
-    def __str__(self) -> str:
-        return self.name
 
     def to_dict(self) -> 'dict[str, Any]':
         data: 'dict[str, Any]' = {'name': self.name}

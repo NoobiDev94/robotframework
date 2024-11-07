@@ -7,8 +7,8 @@ ${USE LIMIT}   Use the 'limit' argument to increase or remove the limit if neede
 *** Test Cases ***
 Default limit is 10000 iterations
     [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 10000 iterations. ${USE LIMIT}
-    WHILE    $variable < 2
-        Log    ${variable}
+    WHILE    True
+        No Operation
     END
 
 Limit with iteration count
@@ -17,15 +17,24 @@ Limit with iteration count
         Log    ${variable}
     END
 
-Limit with iteration count with spaces
-    [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 30 iterations. ${USE LIMIT}
-    WHILE    $variable < 2    limit=3 0
+Iteration count with 'times' suffix
+    [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 3 iterations. ${USE LIMIT}
+    WHILE    $variable < 2    limit=3 times
         Log    ${variable}
     END
 
-Limit with iteration count with underscore
-    [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 10 iterations. ${USE LIMIT}
-    WHILE    $variable < 2    limit=1_0
+Iteration count with 'x' suffix
+    [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 4 iterations. ${USE LIMIT}
+    WHILE    $variable < 2    limit=4x
+        Log    ${variable}
+    END
+
+Iteration count normalization
+    [Documentation]     FAIL WHILE loop was aborted because it did not finish within the limit of 30 iterations. ${USE LIMIT}
+    WHILE    limit=1_000
+        BREAK
+    END
+    WHILE    $variable < 2    limit=3 0 T i m e S
         Log    ${variable}
     END
 
@@ -48,8 +57,7 @@ Part of limit from variable
     END
 
 Limit can be disabled
-    WHILE    $variable < 110    limit=NoNe
-        Log     ${variable}
+    WHILE    $variable < 10042    limit=NoNe
         ${variable}=    Evaluate    $variable + 1
     END
 
@@ -88,8 +96,8 @@ Continue after limit in teardown
     [Teardown]    Continue after limit
 
 Invalid limit invalid suffix
-    [Documentation]     FAIL Invalid WHILE loop limit: Invalid time string '1 times'.
-    WHILE    $variable < 2    limit=1 times
+    [Documentation]     FAIL Invalid WHILE loop limit: Invalid time string '1 bad'.
+    WHILE    $variable < 2    limit=1 bad
         Fail    Should not be executed
     END
 
@@ -105,8 +113,14 @@ Invalid limit mistyped prefix
         Fail    Should not be executed
     END
 
+Limit with non-existing variable
+    [Documentation]     FAIL Invalid WHILE loop limit: Variable '\${bad}' not found.
+    WHILE    limit=${bad}
+        Fail    Should not be executed
+    END
+
 Limit used multiple times
-    [Documentation]     FAIL WHILE option 'limit' is accepted only once, got 2 values '1' and '2'.
+    [Documentation]     FAIL WHILE accepts only one condition, got 2 conditions 'True' and 'limit=1'.
     WHILE    True    limit=1    limit=2
         Fail    Should not be executed
     END

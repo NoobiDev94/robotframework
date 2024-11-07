@@ -4,28 +4,27 @@ from robot.libraries.BuiltIn import BuiltIn
 
 
 class ListenSome:
-    ROBOT_LISTENER_API_VERSION = '2'
 
     def __init__(self):
         outpath = os.path.join(os.getenv('TEMPDIR'), 'listen_some.txt')
-        self.outfile = open(outpath, 'w')
+        self.outfile = open(outpath, 'w', encoding='UTF-8')
 
-    def startTest(self, name, attrs):
-        self.outfile.write(name + '\n')
+    def startTest(self, data, result):
+        self.outfile.write(data.name + '\n')
 
-    def endSuite(self, name, attrs):
-        self.outfile.write(attrs['statistics'] + '\n')
+    def endSuite(self, data, result):
+        self.outfile.write(result.stat_message + '\n')
 
     def close(self):
         self.outfile.close()
 
 
 class WithArgs:
-    ROBOT_LISTENER_API_VERSION = '2'
+    ROBOT_LISTENER_API_VERSION = '3'
 
     def __init__(self, arg1, arg2='default'):
         outpath = os.path.join(os.getenv('TEMPDIR'), 'listener_with_args.txt')
-        with open(outpath, 'a') as outfile:
+        with open(outpath, 'a', encoding='UTF-8') as outfile:
             outfile.write("I got arguments '%s' and '%s'\n" % (arg1, arg2))
 
 
@@ -73,19 +72,21 @@ class KeywordType:
                                  % (attrs['type'], expected))
 
     def _get_expected_type(self, kwname, libname, args, source, lineno, **ignore):
+        if kwname.startswith(('${x}    ', '@{finnish}    ')):
+            return 'VAR'
         if ' IN ' in kwname:
             return 'FOR'
         if ' = ' in kwname:
             return 'ITERATION'
         if not args:
-            if "'IF' == 'WRONG'" in kwname or '${i} == 9' in kwname:
+            if "'${x}' == 'wrong'" in kwname or '${i} == 9' in kwname:
                 return 'IF'
-            if "'ELSE IF' == 'ELSE IF'" in kwname:
+            if "'${x}' == 'value'" in kwname:
                 return 'ELSE IF'
             if kwname == '':
                 source = os.path.basename(source)
                 if source == 'for_loops.robot':
-                    return 'BREAK' if lineno == 14 else 'CONTINUE'
+                    return 'BREAK' if lineno == 13 else 'CONTINUE'
                 return 'ELSE'
         expected = args[0] if libname == 'BuiltIn' else kwname
         return {'Suite Setup': 'SETUP', 'Suite Teardown': 'TEARDOWN',
@@ -162,7 +163,7 @@ class Messages:
     ROBOT_LISTENER_API_VERSION = '2'
 
     def __init__(self, path):
-        self.output = open(path, 'w')
+        self.output = open(path, 'w', encoding='UTF-8')
 
     def log_message(self, msg):
         self.output.write('%s: %s\n' % (msg['level'], msg['message']))

@@ -13,7 +13,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Literal, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from robot import running, result, model
@@ -39,16 +40,48 @@ class LoggerApi:
     def end_keyword(self, data: 'running.Keyword', result: 'result.Keyword'):
         self.end_body_item(data, result)
 
+    def start_user_keyword(self, data: 'running.Keyword',
+                           implementation: 'running.UserKeyword',
+                           result: 'result.Keyword'):
+        self.start_keyword(data, result)
+
+    def end_user_keyword(self, data: 'running.Keyword',
+                         implementation: 'running.UserKeyword',
+                         result: 'result.Keyword'):
+        self.end_keyword(data, result)
+
+    def start_library_keyword(self, data: 'running.Keyword',
+                              implementation: 'running.LibraryKeyword',
+                              result: 'result.Keyword'):
+        self.start_keyword(data, result)
+
+    def end_library_keyword(self, data: 'running.Keyword',
+                            implementation: 'running.LibraryKeyword',
+                            result: 'result.Keyword'):
+        self.end_keyword(data, result)
+
+    def start_invalid_keyword(self, data: 'running.Keyword',
+                              implementation: 'running.KeywordImplementation',
+                              result: 'result.Keyword'):
+        self.start_keyword(data, result)
+
+    def end_invalid_keyword(self, data: 'running.Keyword',
+                            implementation: 'running.KeywordImplementation',
+                            result: 'result.Keyword'):
+        self.end_keyword(data, result)
+
     def start_for(self, data: 'running.For', result: 'result.For'):
         self.start_body_item(data, result)
 
     def end_for(self, data: 'running.For', result: 'result.For'):
         self.end_body_item(data, result)
 
-    def start_for_iteration(self, data: 'running.For', result: 'result.ForIteration'):
+    def start_for_iteration(self, data: 'running.ForIteration',
+                            result: 'result.ForIteration'):
         self.start_body_item(data, result)
 
-    def end_for_iteration(self, data: 'running.For', result: 'result.ForIteration'):
+    def end_for_iteration(self, data: 'running.ForIteration',
+                          result: 'result.ForIteration'):
         self.end_body_item(data, result)
 
     def start_while(self, data: 'running.While', result: 'result.While'):
@@ -57,10 +90,12 @@ class LoggerApi:
     def end_while(self, data: 'running.While', result: 'result.While'):
         self.end_body_item(data, result)
 
-    def start_while_iteration(self, data: 'running.While', result: 'result.WhileIteration'):
+    def start_while_iteration(self, data: 'running.WhileIteration',
+                              result: 'result.WhileIteration'):
         self.start_body_item(data, result)
 
-    def end_while_iteration(self, data: 'running.While', result: 'result.WhileIteration'):
+    def end_while_iteration(self, data: 'running.WhileIteration',
+                            result: 'result.WhileIteration'):
         self.end_body_item(data, result)
 
     def start_if(self, data: 'running.If', result: 'result.If'):
@@ -69,10 +104,10 @@ class LoggerApi:
     def end_if(self, data: 'running.If', result: 'result.If'):
         self.end_body_item(data, result)
 
-    def start_if_branch(self, data: 'running.If', result: 'result.IfBranch'):
+    def start_if_branch(self, data: 'running.IfBranch', result: 'result.IfBranch'):
         self.start_body_item(data, result)
 
-    def end_if_branch(self, data: 'running.If', result: 'result.IfBranch'):
+    def end_if_branch(self, data: 'running.IfBranch', result: 'result.IfBranch'):
         self.end_body_item(data, result)
 
     def start_try(self, data: 'running.Try', result: 'result.Try'):
@@ -81,10 +116,10 @@ class LoggerApi:
     def end_try(self, data: 'running.Try', result: 'result.Try'):
         self.end_body_item(data, result)
 
-    def start_try_branch(self, data: 'running.Try', result: 'result.TryBranch'):
+    def start_try_branch(self, data: 'running.TryBranch', result: 'result.TryBranch'):
         self.start_body_item(data, result)
 
-    def end_try_branch(self, data: 'running.Try', result: 'result.TryBranch'):
+    def end_try_branch(self, data: 'running.TryBranch', result: 'result.TryBranch'):
         self.end_body_item(data, result)
 
     def start_var(self, data: 'running.Var', result: 'result.Var'):
@@ -129,23 +164,62 @@ class LoggerApi:
     def message(self, message: 'model.Message'):
         pass
 
-    # FIXME: This should probably be removed?
-    def output_file(self, type_: str, path: str):
-        pass
+    def output_file(self, path: Path):
+        """Called when XML output file is closed.
 
-    def log_file(self, path: str):
-        pass
+        Calls :meth:`result_file` by default.
+        """
+        self.result_file('Output', path)
 
-    def report_file(self, path: str):
-        pass
+    def report_file(self, path: Path):
+        """Called when report file is closed.
 
-    def xunit_file(self, path: str):
-        pass
+        Calls :meth:`result_file` by default.
+        """
+        self.result_file('Report', path)
 
-    def debug_file(self, path: str):
+    def log_file(self, path: Path):
+        """Called when log file is closed.
+
+        Calls :meth:`result_file` by default.
+        """
+        self.result_file('Log', path)
+
+    def xunit_file(self, path: Path):
+        """Called when xunit file is closed.
+
+        Calls :meth:`result_file` by default.
+        """
+        self.result_file('XUnit', path)
+
+    def debug_file(self, path: Path):
+        """Called when debug file is closed.
+
+        Calls :meth:`result_file` by default.
+        """
+        self.result_file('Debug', path)
+
+    def result_file(self, kind: Literal['Output', 'Report', 'Log', 'XUnit', 'Debug'],
+                    path: Path):
+        """Called when any result file is closed by default.
+
+        ``kind`` specifies the file type. This method is not called if a result
+        file specific method like :meth:`output_file` is implemented.
+        """
         pass
 
     def imported(self, import_type: str, name: str, attrs):
+        pass
+
+    def library_import(self, library: 'running.TestLibrary',
+                       importer: 'running.Import'):
+        pass
+
+    def resource_import(self, resource: 'running.ResourceFile',
+                        importer: 'running.Import'):
+        pass
+
+    def variables_import(self, attrs: dict, importer: 'running.Import'):
         pass
 
     def close(self):

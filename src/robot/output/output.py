@@ -15,10 +15,10 @@
 
 from . import pyloggingconf
 from .debugfile import DebugFile
-from .listeners import LibraryListeners, Listeners, ListenerAdapter
+from .listeners import Listeners, LibraryListeners
 from .logger import LOGGER
 from .loggerapi import LoggerApi
-from .loggerhelper import AbstractLogger
+from .loggerhelper import AbstractLogger, IsLogged
 from .xmllogger import XmlLoggerAdapter
 
 
@@ -27,12 +27,16 @@ class Output(AbstractLogger, LoggerApi):
     def __init__(self, settings):
         AbstractLogger.__init__(self)
         self._xml_logger = XmlLoggerAdapter(settings.output, settings.log_level,
-                                            settings.rpa)
-        self.listeners = ListenerAdapter(Listeners(settings.listeners, settings.log_level))
-        self.library_listeners = ListenerAdapter(LibraryListeners(settings.log_level))
+                                            settings.rpa,
+                                            legacy_output=settings.legacy_output)
+        self.listeners = Listeners(settings.listeners, settings.log_level)
+        self.library_listeners = LibraryListeners(settings.log_level)
         self._register_loggers(DebugFile(settings.debug_file))
         self._settings = settings
-        self._flatten_level = 0
+
+    @property
+    def initial_log_level(self):
+        return self._settings.log_level
 
     def _register_loggers(self, debug_file):
         LOGGER.register_xml_logger(self._xml_logger)
@@ -43,11 +47,15 @@ class Output(AbstractLogger, LoggerApi):
     def register_error_listener(self, listener):
         LOGGER.register_error_listener(listener)
 
+    @property
+    def delayed_logging(self):
+        return LOGGER.delayed_logging
+
     def close(self, result):
         self._xml_logger.logger.visit_statistics(result.statistics)
         self._xml_logger.close()
         LOGGER.unregister_xml_logger()
-        LOGGER.output_file('Output', self._settings['Output'])
+        LOGGER.output_file(self._settings['Output'])
 
     def start_suite(self, data, result):
         LOGGER.start_suite(data, result)
@@ -63,17 +71,27 @@ class Output(AbstractLogger, LoggerApi):
 
     def start_keyword(self, data, result):
         LOGGER.start_keyword(data, result)
-        if result.type in result.KEYWORD_TYPES and result.tags.robot('flatten'):
-            self._flatten_level += 1
-            if self._flatten_level == 1:
-                self._xml_logger.flatten(True)
 
     def end_keyword(self, data, result):
-        if result.type in result.KEYWORD_TYPES and result.tags.robot('flatten'):
-            self._flatten_level -= 1
-            if not self._flatten_level:
-                self._xml_logger.flatten(False)
         LOGGER.end_keyword(data, result)
+
+    def start_user_keyword(self, data, implementation, result):
+        LOGGER.start_user_keyword(data, implementation, result)
+
+    def end_user_keyword(self, data, implementation, result):
+        LOGGER.end_user_keyword(data, implementation, result)
+
+    def start_library_keyword(self, data, implementation, result):
+        LOGGER.start_library_keyword(data, implementation, result)
+
+    def end_library_keyword(self, data, implementation, result):
+        LOGGER.end_library_keyword(data, implementation, result)
+
+    def start_invalid_keyword(self, data, implementation, result):
+        LOGGER.start_invalid_keyword(data, implementation, result)
+
+    def end_invalid_keyword(self, data, implementation, result):
+        LOGGER.end_invalid_keyword(data, implementation, result)
 
     def start_for(self, data, result):
         LOGGER.start_for(data, result)
@@ -157,10 +175,11 @@ class Output(AbstractLogger, LoggerApi):
         LOGGER.log_message(msg)
 
     def trace(self, msg, write_if_flat=True):
-        if write_if_flat or self._flatten_level == 0:
+        if write_if_flat or not self._xml_logger.flatten_level:
             self.write(msg, 'TRACE')
 
     def set_log_level(self, level):
+        IsLogged.validate_level(level)
         pyloggingconf.set_level(level)
         self.listeners.set_log_level(level)
         self.library_listeners.set_log_level(level)

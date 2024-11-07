@@ -130,6 +130,8 @@ Options
                           specified. Given path, similarly as paths given to
                           --log, --report and --xunit, is relative to
                           --outputdir unless given as an absolute path.
+    --legacyoutput        Create XML output file in format compatible with
+                          Robot Framework 6.x and earlier.
  -l --log file            HTML log file. Can be disabled by giving a special
                           name `NONE`. Default: log.html
                           Examples: `--log mylog.html`, `-l none`
@@ -260,6 +262,9 @@ Options
                           on:   always use colors
                           ansi: like `on` but use ANSI colors also on Windows
                           off:  disable colors altogether
+    --consolelinks auto|off  Control making paths to results files hyperlinks.
+                          auto: use links when colors are enabled (default)
+                          off: disable links unconditionally
  -P --pythonpath path *   Additional locations to add to the module search path
                           that is used when importing Python based extensions.
  -A --argumentfile path *  Text file to read more arguments from. File can have

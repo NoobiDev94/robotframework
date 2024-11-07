@@ -28,6 +28,7 @@ Should Contain case-insensitive
     [Template]    Should Contain
     abcdefg     CD     ignore_case=True
     HYVÄ        vä     ignore_case=yes
+    Straße      ss     ignore_case=true
     ${LIST}     CEE    ignore_case=!!!
     ${DICT}     Ä      ignore_case=yes
     ${DICT1}    XXX    ignore_case=yes
@@ -98,6 +99,34 @@ Should Contain and collapse spaces
     ${DICT4}      a\tb\n    collapse_spaces=YES
     ${LIST4}      \tb\n     collapse_spaces=TRUE
     ${LIST4}      \tc\n     collapse_spaces=TRUE
+
+Should Contain with bytes
+    [Documentation]    FAIL Several failures occurred:
+    ...
+    ...    1) ValueError: '\u0666' cannot be encoded into bytes.
+    ...
+    ...    2) ValueError: Byte must be in range 0-255, got 666.
+    [Template]    Should Contain
+    ${{b'hyva'}}                     yva
+    ${{b'h\xfcv\xe4'}}               üvä
+    ${{bytes([0, 1, 2])}}            \x01
+    ${{bytes([0, 1, 2])}}            ${1}
+    ${{bytes([0, 1, 2])}}            \u0666
+    ${{bytes([0, 1, 2])}}            ${666}
+
+Should Contain with bytearray
+    [Documentation]    FAIL Several failures occurred:
+    ...
+    ...    1) ValueError: '\u0666' cannot be encoded into bytes.
+    ...
+    ...    2) ValueError: Byte must be in range 0-255, got 666.
+    [Template]    Should Contain
+    ${{bytearray(b'hyva')}}          yva
+    ${{bytearray(b'h\xfcv\xe4')}}    üvä
+    ${{bytearray([0, 1, 2])}}        \x01
+    ${{bytearray([0, 1, 2])}}        ${1}
+    ${{bytearray([0, 1, 2])}}        \u0666
+    ${{bytearray([0, 1, 2])}}        ${666}
 
 Should Not Contain
     [Documentation]    FAIL 'Hello yet again' contains 'yet'

@@ -20,6 +20,7 @@ class LoggerMock:
     def __init__(self, *expected):
         self.expected = list(expected)
         self.logger = self
+        self.priority = 0
 
     def message(self, msg):
         exp_msg, exp_level = self.expected.pop(0)
@@ -33,11 +34,14 @@ class LoggerMock:
     def close(self):
         pass
 
+    def __iter__(self):
+        yield self
 
-class LoggerMock2(LoggerMock):
 
-    def output_file(self, name, path):
-        self.output_file = (name, path)
+class LoggerMock2(LoggerMock, LoggerApi):
+
+    def result_file(self, kind, path):
+        self.result_file_args = (kind, path)
 
     def close(self):
         self.closed = True
@@ -81,9 +85,11 @@ class TestLogger(unittest.TestCase):
     def test_all_methods(self):
         logger = LoggerMock2(('Hello, world!', 'INFO'))
         self.logger.register_logger(logger)
-        self.logger.output_file('name', 'path')
+        self.logger.output_file('out.xml')
+        assert_equal(logger.result_file_args, ('Output', 'out.xml'))
+        self.logger.log_file('log.html')
+        assert_equal(logger.result_file_args, ('Log', 'log.html'))
         self.logger.close()
-        assert_equal(logger.output_file, ('name', 'path'))
         assert_true(logger.closed)
 
     def test_close_removes_registered_loggers(self):

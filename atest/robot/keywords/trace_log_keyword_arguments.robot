@@ -37,6 +37,11 @@ Variable Number of Arguments
     ...    \${mand}='mandatory' | \@{vargs}=[]
     ...    'mandatory'
 
+Named only
+    Check Argument Value Trace
+    ...    \${no1}='a' | \${no2}='b'
+    ...    no1='a' | no2='b'
+
 Kwargs
     Check Argument Value Trace
     ...    \&{kwargs}={}
@@ -46,8 +51,8 @@ Kwargs
 
 All args
     Check Argument Value Trace
-    ...    \${positional}='1' | \@{varargs}=['2', '3'] | \&{kwargs}={'d': '4'}
-    ...    '1' | '2' | '3' | d='4'
+    ...    \${positional}='1' | \@{varargs}=['2', '3'] | \${named_only}='4' | \&{kwargs}={'free': '5'}
+    ...    '1' | '2' | '3' | named_only='4' | free='5'
 
 Non String Object as Argument
     Check Argument Value Trace
@@ -74,8 +79,13 @@ Arguments With Run Keyword
 Embedded Arguments
     ${tc}=    Check Test Case    ${TEST NAME}
     Check Log Message    ${tc.kws[0].msgs[0]}    Arguments: [ \${first}='foo' | \${second}=42 | \${what}='UK' ]    TRACE
-    Check Log Message    ${tc.kws[1].msgs[0]}    Arguments: [ 'bar' | 'Embedded Arguments' ]    TRACE
-    Check Log Message    ${tc.kws[2].msgs[0]}    Arguments: [ \${embedded}='Embedded' | \${keyword}='keyword' | \${positional}='positively' ]    TRACE
+    Check Log Message    ${tc.kws[1].msgs[0]}    Arguments: [ 'bar' | 'Embedded Arguments' ]                       TRACE
+    Check Log Message    ${tc.kws[2].msgs[0]}    Arguments: [ \${embedded}='embedded' | \${normal}='argument' ]    TRACE
+    Check Log Message    ${tc.kws[3].msgs[0]}    Arguments: [ \${embedded}='embedded' | \${normal}='argument' ]    TRACE
+    FOR    ${kw}    IN    @{tc.kws}
+        Check Log Message    ${kw.msgs[-1]}    Return: None    TRACE
+        Length Should Be     ${kw.msgs}    2
+    END
 
 *** Keywords ***
 Check Argument Value Trace

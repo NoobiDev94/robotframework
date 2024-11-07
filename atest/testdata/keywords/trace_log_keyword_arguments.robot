@@ -37,15 +37,19 @@ Variable Number of Arguments
     Mandatory and Varargs UK    mandatory
     Mandatory and Varargs    mandatory
 
+Named only
+    Named only UK    no1=a    no2=b
+    Named only       no1=a    no2=b
+
 Kwargs
     Kwargs UK
     Kwargs
     Kwargs UK    a=override    b=${2}    &{DICT}
-    Kwargs    a=override    b=${2}    &{DICT}
+    Kwargs       a=override    b=${2}    &{DICT}
 
 All args
-    All args UK    1    2    3    d=4
-    All args    1    2    3    d=4
+    All args UK    1    2    3    named_only=4    free=5
+    All args       1    2    3    named_only=4    free=5
 
 Non String Object as Argument
     Mandatory and Default UK    ${TRUE}    default=${1.0}
@@ -79,7 +83,8 @@ Arguments With Run Keyword
 Embedded Arguments
     Embedded Arguments "foo" and "${42}" with UK
     Embedded Arguments "bar" and "${TEST NAME}"
-    Embedded arguments in a keyword with positional arguments    positively
+    Both embedded and normal arguments    argument
+    Both embedded and normal arguments    normal=argument
 
 *** Keywords ***
 Set Unicode Repr Object As Variable
@@ -102,12 +107,16 @@ Mandatory and Varargs UK
     [Arguments]    ${mand}    @{vargs}
     No Operation
 
+Named only UK
+    [Arguments]    @{}    ${no1}=value    ${no2}
+    No Operation
+
 Kwargs UK
     [Arguments]    &{kwargs}
     No Operation
 
 All args UK
-    [Arguments]    ${positional}    @{varargs}    &{kwargs}
+    [Arguments]    ${positional}    @{varargs}    ${named_only}    &{kwargs}
     No Operation
 
 Embedded Arguments "${first}" and "${second}" with ${what:[KU]+}
@@ -115,6 +124,7 @@ Embedded Arguments "${first}" and "${second}" with ${what:[KU]+}
     Should be Equal    ${second}    ${42}
     Should be Equal    ${what}    UK
 
-${embedded} arguments in a ${keyword} with positional arguments
-    [arguments]     ${positional}
-    Log to console   ${embedded} ${keyword} ${positional}
+Both ${embedded} and normal arguments
+    [Arguments]     ${normal}
+    Should Be Equal    ${embedded}    embedded
+    Should Be Equal    ${normal}    argument

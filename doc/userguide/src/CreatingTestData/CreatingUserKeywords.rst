@@ -540,29 +540,29 @@ the keyword is called. In the above example, `${animal}` has value `cat` when
 the keyword is used for the first time and `dog` when it is used for
 the second time.
 
-Starting from Robot Framework 6.1, it is possible to create user keywords that have
-both embedded and "normal" (specified with :setting:`[Arguments]` setting) arguments.
-Earlier, having "normal" arguments was not possible. Otherwise, keywords with embedded
-arguments are created just like other user keywords. They are also used the same
-way as other keywords except that spaces and underscores are not ignored in their
-names when keywords are matched. They are, however, case-insensitive like
-other keywords. For example, the keyword in the example above could be used like
-:name:`select cow from list`, but not like :name:`Select cow fromlist`.
-Example below demonstrates using embedded and regular arguments in a single keyword:
+Starting from Robot Framework 6.1, it is possible to create user keywords
+that accept both embedded and "normal" arguments:
 
 .. sourcecode:: robotframework
 
    *** Test Cases ***
    Embedded and normal arguments
-       Number of cats should be    5
-       Number of elephants should be    1
+       Number of cats should be    2
+       Number of dogs should be    count=3
 
    *** Keywords ***
    Number of ${animals} should be
-       [Arguments]    ${expected_count}
+       [Arguments]    ${count}
        Open Page    Pet Selection
        Select Items From List    animal_list    ${animals}
-       Number of Selected List Items Should Be    ${expected_count}
+       Number of Selected List Items Should Be    ${count}
+
+Other than the special name, keywords with embedded
+arguments are created just like other user keywords. They are also used the same
+way as other keywords except that spaces and underscores are not ignored in their
+names when keywords are matched. They are, however, case-insensitive like
+other keywords. For example, the :name:`Select ${animal} from list` keyword could
+be used like :name:`select cow from list`, but not like :name:`Select cow fromlist`.
 
 Embedded arguments do not support default values or variable number of
 arguments like normal arguments do. If such functionality is needed, normal
@@ -624,13 +624,13 @@ This approach is not enough to resolve all conflicts, but it helps in common
 cases and is generally recommended. Another benefit is that it makes arguments
 stand out from rest of the keyword.
 
-The problem of arguments matching too much occurs often when creating
-keywords that `ignore the given/when/then/and/but prefixes`__ typically used
-in Behavior Driven Development (BDD). For example,
-:name:`${name} goes home` matches :name:`Given Janne goes home` so
-that `${name}` gets value `Given Janne`. Quotes around the
-argument, like in :name:`"${name}" goes home`, resolve this problem
-easily.
+Prior to Robot Framework 7.1, embedded arguments starting the keyword name also
+matched possible `given/when/then/and/but prefixes`__ typically used in Behavior
+Driven Development (BDD). For example, :name:`${name} goes home` matched
+:name:`Given Janne goes home` so that `${name}` got value `Given Janne`.
+Nowadays the prefix is ignored and `${name}` will be `Janne` as expected.
+If older Robot Framework versions need to be supported, it is easiest to quote
+the argument like in :name:`"${name}" goes home` to get consistent behavior.
 
 An alternative solution for limiting what values arguments match is
 `using custom regular expressions`_.
@@ -732,6 +732,8 @@ A custom embedded argument regular expression is defined after the
 base name of the argument so that the argument and the regexp are
 separated with a colon. For example, an argument that should match
 only numbers can be defined like `${arg:\d+}`.
+If needed, custom patterns can be prefixed with `inline flags`__ such as
+`(?i)` for case-insensitivity.
 
 Using custom regular expressions is illustrated by the following examples.
 Notice that the first one shows how the earlier problem with
@@ -757,6 +759,10 @@ the keyword so that `${team}` can only contain non-whitespace characters.
        Deadline is 2022-09-21
        Deadline is today
 
+   Case-insensitive match
+       Select dog
+       Select CAT
+
    *** Keywords ***
    Select ${city} ${team:\S+}
        Log    Selected ${team} from ${city}.
@@ -773,9 +779,16 @@ the keyword so that `${team}` can only contain non-whitespace characters.
        END
        Log    Deadline is on ${date}.
 
+   Select ${animal:(?i)cat|dog}
+       [Documentation]    Inline flag `(?i)` makes the pattern case-insensitive.
+       Log    Selected ${animal}!
+
+.. note:: Support for inline flags is new in Robot Framework 7.2.
+
 __ http://en.wikipedia.org/wiki/Regular_expression
 __ `Embedded arguments matching wrong values`_
 __ `Resolving conflicts`_
+__ https://docs.python.org/3/library/re.html#regular-expression-syntax
 
 Supported regular expression syntax
 '''''''''''''''''''''''''''''''''''

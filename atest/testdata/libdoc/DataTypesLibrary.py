@@ -1,5 +1,5 @@
 from enum import Enum, IntEnum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 try:
     from typing_extensions import TypedDict
 except ImportError:
@@ -101,8 +101,8 @@ class DataTypesLibrary:
         """
         pass
 
-    def set_location(self, location: GeoLocation):
-        pass
+    def set_location(self, location: GeoLocation) -> bool:
+        return True
 
     def assert_something(self, value, operator: Optional[AssertionOperator] = None, exp: str = 'something?'):
         """This links to `AssertionOperator` .
@@ -122,10 +122,13 @@ class DataTypesLibrary:
                              AssertionOperator,
                              Small,
                              GeoLocation,
-                             None]] = AssertionOperator.equal):
+                             None]] = AssertionOperator.equal) -> Union[int, List[int]]:
         pass
 
     def typing_types(self, list_of_str: List[str], dict_str_int: Dict[str, int], whatever: Any, *args: List[Any]):
+        pass
+
+    def x_literal(self, arg: Literal[1, 'xxx', b'yyy', True, None, Small.one]):
         pass
 
     def custom(self, arg: CustomType, arg2: 'CustomType2', arg3: CustomType, arg4: Unknown):

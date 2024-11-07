@@ -13,19 +13,18 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from ast import NodeVisitor
-
 from robot.errors import DataError
 from robot.output import LOGGER
-from robot.parsing import File, Token
-from robot.variables import VariableIterator
+from robot.parsing import File, ModelVisitor, Token
+from robot.utils import NormalizedDict
+from robot.variables import VariableMatches
 
+from ..model import For, If, IfBranch, TestSuite, TestCase, Try, TryBranch, While
+from ..resourcemodel import ResourceFile, UserKeyword
 from .settings import FileSettings
-from ..model import (For, If, IfBranch, ResourceFile, TestSuite, TestCase, Try,
-                     TryBranch, UserKeyword, While)
 
 
-class SettingsBuilder(NodeVisitor):
+class SettingsBuilder(ModelVisitor):
 
     def __init__(self, suite: TestSuite, settings: FileSettings):
         self.suite = suite
@@ -63,6 +62,15 @@ class SettingsBuilder(NodeVisitor):
         self.settings.default_tags = node.values
 
     def visit_TestTags(self, node):
+        for tag in node.values:
+            if tag.startswith('-'):
+                LOGGER.warn(
+                    f"Error in file '{self.suite.source}' on line {node.lineno}: "
+                    f"Setting tags starting with a hyphen like '{tag}' using the "
+                    f"'Test Tags' setting is deprecated. In Robot Framework 8.0 this "
+                    f"syntax will be used for removing tags. Escape the tag like "
+                    f"'\\{tag}' to use the literal value and to avoid this warning."
+                )
         self.settings.test_tags = node.values
 
     def visit_KeywordTags(self, node):
@@ -90,11 +98,12 @@ class SettingsBuilder(NodeVisitor):
         pass
 
 
-class SuiteBuilder(NodeVisitor):
+class SuiteBuilder(ModelVisitor):
 
     def __init__(self, suite: TestSuite, settings: FileSettings):
         self.suite = suite
         self.settings = settings
+        self.seen_keywords = NormalizedDict(ignore='_')
         self.rpa = None
 
     def build(self, model: File):
@@ -125,14 +134,15 @@ class SuiteBuilder(NodeVisitor):
         TestCaseBuilder(self.suite, self.settings).build(node)
 
     def visit_Keyword(self, node):
-        KeywordBuilder(self.suite.resource, self.settings).build(node)
+        KeywordBuilder(self.suite.resource, self.settings, self.seen_keywords).build(node)
 
 
-class ResourceBuilder(NodeVisitor):
+class ResourceBuilder(ModelVisitor):
 
     def __init__(self, resource: ResourceFile):
         self.resource = resource
         self.settings = FileSettings()
+        self.seen_keywords = NormalizedDict(ignore='_')
 
     def build(self, model: File):
         ErrorReporter(model.source, raise_on_invalid_header=True).visit(model)
@@ -161,10 +171,10 @@ class ResourceBuilder(NodeVisitor):
                                        error=format_error(node.errors))
 
     def visit_Keyword(self, node):
-        KeywordBuilder(self.resource, self.settings).build(node)
+        KeywordBuilder(self.resource, self.settings, self.seen_keywords).build(node)
 
 
-class BodyBuilder(NodeVisitor):
+class BodyBuilder(ModelVisitor):
 
     def __init__(self, model: 'TestCase|UserKeyword|For|If|Try|While|None' = None):
         self.model = model
@@ -192,7 +202,7 @@ class BodyBuilder(NodeVisitor):
         self.model.body.create_var(node.name, node.value, node.scope, node.separator,
                                    lineno=node.lineno, error=format_error(node.errors))
 
-    def visit_ReturnStatement(self, node):
+    def visit_Return(self, node):
         self.model.body.create_return(node.values, lineno=node.lineno,
                                       error=format_error(node.errors))
 
@@ -205,8 +215,8 @@ class BodyBuilder(NodeVisitor):
                                      error=format_error(node.errors))
 
     def visit_Error(self, node):
-        self.model.body.create_error(lineno=node.lineno,
-                                     values=node.values, error=format_error(node.errors))
+        self.model.body.create_error(node.values, lineno=node.lineno,
+                                     error=format_error(node.errors))
 
 
 class TestCaseBuilder(BodyBuilder):
@@ -250,14 +260,13 @@ class TestCaseBuilder(BodyBuilder):
                 item.args = args
 
     def _format_template(self, template, arguments):
-        variables = VariableIterator(template, identifiers='$')
-        count = len(variables)
+        matches = VariableMatches(template, identifiers='$')
+        count = len(matches)
         if count == 0 or count != len(arguments):
             return template, arguments
         temp = []
-        for (before, _, after), arg in zip(variables, arguments):
-            temp.extend([before, arg])
-        temp.append(after)
+        for match, arg in zip(matches, arguments):
+            temp[-1:] = [match.before, arg, match.after]
         return ''.join(temp), ()
 
     def visit_Documentation(self, node):
@@ -287,25 +296,55 @@ class TestCaseBuilder(BodyBuilder):
 class KeywordBuilder(BodyBuilder):
     model: UserKeyword
 
-    def __init__(self, resource: ResourceFile, settings: FileSettings):
+    def __init__(self, resource: ResourceFile, settings: FileSettings,
+                 seen_keywords: NormalizedDict):
         super().__init__(resource.keywords.create(tags=settings.keyword_tags))
+        self.resource = resource
+        self.seen_keywords = seen_keywords
+        self.return_setting = None
 
     def build(self, node):
-        # Possible parsing errors aren't reported further because:
-        # - We only validate that keyword body or name isn't empty.
-        # - That is validated again during execution.
-        # - This way e.g. model modifiers can add content to body.
-        self.model.config(name=node.name, lineno=node.lineno)
+        kw = self.model
+        try:
+            # Validate only name here. Reporting all parsing errors would report also
+            # body being empty, but we want to validate it only at parsing time.
+            if not node.name:
+                raise DataError('User keyword name cannot be empty.')
+            kw.config(name=node.name, lineno=node.lineno)
+        except DataError as err:
+            # Errors other than name being empty mean that name contains invalid
+            # embedded arguments. Need to set `_name` to bypass `@property`.
+            kw.config(_name=node.name, lineno=node.lineno, error=str(err))
+            self._report_error(node, err)
         self.generic_visit(node)
+        if self.return_setting:
+            kw.body.create_return(self.return_setting)
+        if not kw.embedded:
+            self._handle_duplicates(kw, self.seen_keywords, node)
+
+    def _report_error(self, node, error):
+        error = f"Creating keyword '{self.model.name}' failed: {error}"
+        ErrorReporter(self.model.source).report_error(node, error)
+
+    def _handle_duplicates(self, kw, seen, node):
+        if kw.name in seen:
+            error = 'Keyword with same name defined multiple times.'
+            seen[kw.name].error = error
+            self.resource.keywords.pop()
+            self._report_error(node, error)
+        else:
+            seen[kw.name] = kw
 
     def visit_Documentation(self, node):
         self.model.doc = node.value
 
     def visit_Arguments(self, node):
-        self.model.args = node.values
         if node.errors:
-            error = format_error(node.errors)
-            self.model.error = f'Invalid argument specification: {error}'
+            error = 'Invalid argument specification: ' + format_error(node.errors)
+            self.model.error = error
+            self._report_error(node, error)
+        else:
+            self.model.args = node.values
 
     def visit_Tags(self, node):
         for tag in node.values:
@@ -314,9 +353,9 @@ class KeywordBuilder(BodyBuilder):
             else:
                 self.model.tags.add(tag)
 
-    def visit_Return(self, node):
+    def visit_ReturnSetting(self, node):
         ErrorReporter(self.model.source).visit(node)
-        self.model.return_ = node.values
+        self.return_setting = node.values
 
     def visit_Timeout(self, node):
         self.model.timeout = node.value
@@ -340,9 +379,9 @@ class ForBuilder(BodyBuilder):
 
     def build(self, node):
         error = format_error(self._get_errors(node))
-        self.model.config(assign=node.assign, flavor=node.flavor, values=node.values,
-                          start=node.start, mode=node.mode, fill=node.fill,
-                          lineno=node.lineno, error=error)
+        self.model.config(assign=node.assign, flavor=node.flavor or 'IN',
+                          values=node.values, start=node.start, mode=node.mode,
+                          fill=node.fill, lineno=node.lineno, error=error)
         for step in node.body:
             self.visit(step)
         return self.model
@@ -460,7 +499,7 @@ def format_error(errors):
     return '\n- '.join(('Multiple errors:',) + errors)
 
 
-class ErrorReporter(NodeVisitor):
+class ErrorReporter(ModelVisitor):
 
     def __init__(self, source, raise_on_invalid_header=False):
         self.source = source
@@ -472,30 +511,34 @@ class ErrorReporter(NodeVisitor):
     def visit_Keyword(self, node):
         pass
 
-    def visit_Return(self, node):
+    def visit_ReturnSetting(self, node):
         # Empty 'visit_Keyword' above prevents calling this when visiting the whole
-        # model, but 'KeywordBuilder.visit_Return' visits the node it gets.
-        LOGGER.warn(self._format_message(node.get_token(Token.RETURN_SETTING)))
+        # model, but 'KeywordBuilder.visit_ReturnSetting' visits the node it gets.
+        self.report_error(node.get_token(Token.RETURN_SETTING), warn=True)
 
     def visit_SectionHeader(self, node):
         token = node.get_token(*Token.HEADER_TOKENS)
         if not token.error:
             return
-        message = self._format_message(token)
         if token.type == Token.INVALID_HEADER:
-            if self.raise_on_invalid_header:
-                raise DataError(message)
-            else:
-                LOGGER.error(message)
+            self.report_error(token, throw=self.raise_on_invalid_header)
         else:
             # Errors, other than totally invalid headers, can occur only with
             # deprecated singular headers, and we want to report them as warnings.
             # A more generic solution for separating errors and warnings would be good.
-            LOGGER.warn(self._format_message(token))
+            self.report_error(token, warn=True)
 
     def visit_Error(self, node):
-        for error in node.get_tokens(Token.ERROR):
-            LOGGER.error(self._format_message(error))
+        for token in node.get_tokens(Token.ERROR):
+            self.report_error(token)
 
-    def _format_message(self, token):
-        return f"Error in file '{self.source}' on line {token.lineno}: {token.error}"
+    def report_error(self, source, error=None, warn=False, throw=False):
+        if not error:
+            if isinstance(source, Token):
+                error = source.error
+            else:
+                error = format_error(source.errors)
+        message = f"Error in file '{self.source}' on line {source.lineno}: {error}"
+        if throw:
+            raise DataError(message)
+        LOGGER.write(message, level='WARN' if warn else 'ERROR')

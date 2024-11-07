@@ -50,7 +50,7 @@ class JsonDocBuilder:
     def _parse_spec_json(self, path):
         if not os.path.isfile(path):
             raise DataError(f"Spec file '{path}' does not exist.")
-        with open(path) as json_source:
+        with open(path, encoding='UTF-8') as json_source:
             libdoc_dict = json.load(json_source)
         return libdoc_dict
 
@@ -64,22 +64,27 @@ class JsonDocBuilder:
                         source=data['source'],
                         lineno=int(data.get('lineno', -1)))
         self._create_arguments(data['args'], kw)
+        self._add_return_type(data.get('returnType'), kw)
         return kw
 
     def _create_arguments(self, arguments, kw: KeywordDoc):
         spec = kw.args
-        setters = {
-            ArgInfo.POSITIONAL_ONLY: spec.positional_only.append,
-            ArgInfo.POSITIONAL_ONLY_MARKER: lambda value: None,
-            ArgInfo.POSITIONAL_OR_NAMED: spec.positional_or_named.append,
-            ArgInfo.VAR_POSITIONAL: lambda value: setattr(spec, 'var_positional', value),
-            ArgInfo.NAMED_ONLY_MARKER: lambda value: None,
-            ArgInfo.NAMED_ONLY: spec.named_only.append,
-            ArgInfo.VAR_NAMED: lambda value: setattr(spec, 'var_named', value),
-        }
+        positional_only = []
+        positional_or_named = []
+        named_only = []
         for arg in arguments:
+            kind = arg['kind']
             name = arg['name']
-            setters[arg['kind']](name)
+            if kind == ArgInfo.POSITIONAL_ONLY:
+                positional_only.append(name)
+            elif kind == ArgInfo.POSITIONAL_OR_NAMED:
+                positional_or_named.append(name)
+            elif kind == ArgInfo.VAR_POSITIONAL:
+                spec.var_positional = name
+            elif kind == ArgInfo.NAMED_ONLY:
+                named_only.append(name)
+            elif kind == ArgInfo.VAR_NAMED:
+                spec.var_named = name
             default = arg.get('defaultValue')
             if default is not None:
                 spec.defaults[name] = default
@@ -94,6 +99,9 @@ class JsonDocBuilder:
                     spec.types = {}
                 spec.types[name] = type_info
             kw.type_docs[name] = type_docs
+        spec.positional_only = positional_only
+        spec.positional_or_named = positional_or_named
+        spec.named_only = named_only
 
     def _parse_type_info(self, data, type_docs):
         if not data:
@@ -101,10 +109,16 @@ class JsonDocBuilder:
         if data.get('typedoc'):
             type_docs[data['name']] = data['typedoc']
         nested = [self._parse_type_info(typ, type_docs) for typ in data.get('nested', ())]
-        return TypeInfo(data['name'], nested=nested)
+        return TypeInfo(data['name'], None, nested=nested or None)
 
     def _parse_legacy_type_info(self, types):
         return TypeInfo.from_sequence(types) if types else None
+
+    def _add_return_type(self, data, kw: KeywordDoc):
+        if data:
+            type_docs = {}
+            kw.args.return_type = self._parse_type_info(data, type_docs)
+            kw.type_docs['return'] = type_docs
 
     def _parse_type_docs(self, type_docs):
         for data in type_docs:

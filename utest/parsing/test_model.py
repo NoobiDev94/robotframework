@@ -13,7 +13,7 @@ from robot.parsing.model.statements import (
     Arguments, Break, Comment, Config, Continue, Documentation, ForHeader, End, ElseHeader,
     ElseIfHeader, EmptyLine, Error, IfHeader, InlineIfHeader, TryHeader, ExceptHeader,
     FinallyHeader, KeywordCall, KeywordName, Return, ReturnSetting, ReturnStatement,
-    SectionHeader, TestCaseName, Var, Variable, WhileHeader
+    SectionHeader, TestCaseName, TestTags, Var, Variable, WhileHeader
 )
 from robot.utils.asserts import assert_equal, assert_raises_with_msg
 
@@ -146,7 +146,7 @@ class TestGetModel(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        PATH.write_text(DATA)
+        PATH.write_text(DATA, encoding='UTF-8')
 
     @classmethod
     def tearDownClass(cls):
@@ -165,7 +165,7 @@ class TestGetModel(unittest.TestCase):
         assert_model(model, EXPECTED, source=PATH)
 
     def test_from_open_file(self):
-        with open(PATH) as f:
+        with open(PATH, encoding='UTF-8') as f:
             model = get_model(f)
         assert_model(model, EXPECTED)
 
@@ -175,7 +175,7 @@ class TestSaveModel(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        PATH.write_text(DATA)
+        PATH.write_text(DATA, encoding='UTF-8')
 
     @classmethod
     def tearDownClass(cls):
@@ -211,7 +211,7 @@ class TestSaveModel(unittest.TestCase):
         message = 'Saving model requires explicit output ' \
                   'when original source is not path.'
         assert_raises_with_msg(TypeError, message, get_model(DATA).save)
-        with open(PATH) as f:
+        with open(PATH, encoding='UTF-8') as f:
             assert_raises_with_msg(TypeError, message, get_model(f).save)
 
 
@@ -228,7 +228,7 @@ Example
         expected = For(
             header=ForHeader([
                 Token(Token.FOR, 'FOR', 3, 4),
-                Token(Token.ASSIGN, '${x}', 3, 11),
+                Token(Token.VARIABLE, '${x}', 3, 11),
                 Token(Token.FOR_SEPARATOR, 'IN', 3, 19),
                 Token(Token.ARGUMENT, 'a', 3, 25),
                 Token(Token.ARGUMENT, 'b', 3, 30),
@@ -255,7 +255,7 @@ Example
         expected = For(
             header=ForHeader([
                 Token(Token.FOR, 'FOR', 3, 4),
-                Token(Token.ASSIGN, '${x}', 3, 11),
+                Token(Token.VARIABLE, '${x}', 3, 11),
                 Token(Token.FOR_SEPARATOR, 'IN ENUMERATE', 3, 19),
                 Token(Token.ARGUMENT, '@{stuff}', 3, 35),
                 Token(Token.OPTION, 'start=1', 3, 47),
@@ -283,7 +283,7 @@ Example
         expected = For(
             header=ForHeader([
                 Token(Token.FOR, 'FOR', 3, 4),
-                Token(Token.ASSIGN, '${x}', 3, 11),
+                Token(Token.VARIABLE, '${x}', 3, 11),
                 Token(Token.FOR_SEPARATOR, 'IN', 3, 19),
                 Token(Token.ARGUMENT, '1', 3, 25),
                 Token(Token.ARGUMENT, 'start=has no special meaning here', 3, 30),
@@ -292,7 +292,7 @@ Example
                 For(
                     header=ForHeader([
                         Token(Token.FOR, 'FOR', 4, 8),
-                        Token(Token.ASSIGN, '${y}', 4, 15),
+                        Token(Token.VARIABLE, '${y}', 4, 15),
                         Token(Token.FOR_SEPARATOR, 'IN RANGE', 4, 23),
                         Token(Token.ARGUMENT, '${x}', 4, 35),
                     ]),
@@ -340,7 +340,7 @@ Example
         expected2 = For(
             header=ForHeader(
                 tokens=[Token(Token.FOR, 'FOR', 3, 4),
-                        Token(Token.ASSIGN, 'wrong', 3, 11),
+                        Token(Token.VARIABLE, 'wrong', 3, 11),
                         Token(Token.FOR_SEPARATOR, 'IN', 3, 20)],
                 errors=("FOR loop has invalid loop variable 'wrong'.",
                         "FOR loop has no loop values."),
@@ -799,7 +799,7 @@ Example
                 next=Try(
                     header=ExceptHeader([Token(Token.EXCEPT, 'EXCEPT', 7, 4),
                                          Token(Token.AS, 'AS', 7, 14),
-                                         Token(Token.ASSIGN, '${exp}', 7, 20)]),
+                                         Token(Token.VARIABLE, '${exp}', 7, 20)]),
                     body=[KeywordCall([Token(Token.KEYWORD, 'Log', 8, 8),
                                        Token(Token.ARGUMENT, 'Catch', 8, 15)])],
                     next=Try(
@@ -827,6 +827,8 @@ Example
     FINALLY         invalid
     #
     EXCEPT    AS    invalid
+    EXCEPT    AS
+    EXCEPT    AS    ${too}    ${many}    ${values}
     EXCEPT    xx    type=invalid
 '''
         expected = Try(
@@ -853,19 +855,39 @@ Example
                         header=ExceptHeader(
                             tokens=[Token(Token.EXCEPT, 'EXCEPT', 8, 4),
                                     Token(Token.AS, 'AS', 8, 14),
-                                    Token(Token.ASSIGN, 'invalid', 8, 20)],
-                            errors=("EXCEPT's AS variable 'invalid' is invalid.",)
+                                    Token(Token.VARIABLE, 'invalid', 8, 20)],
+                            errors=("EXCEPT AS variable 'invalid' is invalid.",)
                         ),
                         errors=('EXCEPT branch cannot be empty.',),
                         next=Try(
                             header=ExceptHeader(
                                 tokens=[Token(Token.EXCEPT, 'EXCEPT', 9, 4),
-                                        Token(Token.ARGUMENT, 'xx', 9, 14),
-                                        Token(Token.OPTION, 'type=invalid', 9, 20)],
-                                errors=("EXCEPT option 'type' does not accept value 'invalid'. "
-                                        "Valid values are 'GLOB', 'REGEXP', 'START' and 'LITERAL'.",)
+                                        Token(Token.AS, 'AS', 9, 14)],
+                                errors=("EXCEPT AS requires a value.",)
                             ),
                             errors=('EXCEPT branch cannot be empty.',),
+                            next=Try(
+                                header=ExceptHeader(
+                                    tokens=[Token(Token.EXCEPT, 'EXCEPT', 10, 4),
+                                            Token(Token.AS, 'AS', 10, 14),
+                                            Token(Token.VARIABLE, '${too}', 10, 20),
+                                            Token(Token.VARIABLE, '${many}', 10, 30),
+                                            Token(Token.VARIABLE, '${values}', 10, 41)],
+                                    errors=("EXCEPT AS accepts only one value.",)
+                                ),
+                                errors=('EXCEPT branch cannot be empty.',),
+                                next=Try(
+                                    header=ExceptHeader(
+                                        tokens=[Token(Token.EXCEPT, 'EXCEPT', 11, 4),
+                                                Token(Token.ARGUMENT, 'xx', 11, 14),
+                                                Token(Token.OPTION, 'type=invalid', 11, 20)],
+                                        errors=("EXCEPT option 'type' does not accept value 'invalid'. "
+                                                "Valid values are 'GLOB', 'REGEXP', 'START' and 'LITERAL'.",)
+                                    ),
+                                    errors=('EXCEPT branch cannot be empty.',),
+                                )
+
+                            )
                         )
                     )
                 ),
@@ -875,7 +897,12 @@ Example
                     'EXCEPT not allowed after FINALLY.',
                     'EXCEPT not allowed after ELSE.',
                     'EXCEPT not allowed after FINALLY.',
+                    'EXCEPT not allowed after ELSE.',
+                    'EXCEPT not allowed after FINALLY.',
+                    'EXCEPT not allowed after ELSE.',
+                    'EXCEPT not allowed after FINALLY.',
                     'EXCEPT without patterns must be last.',
+                    'Only one EXCEPT without patterns allowed.',
                     'TRY must have closing END.')
         )
         get_and_assert_model(data, expected)
@@ -1017,6 +1044,28 @@ Test
         test = get_and_assert_model(data, expected, depth=1)
         assert_equal([v.name for v in test.body], ['${x}', '@{y}', '&{z}', '${x${y}}'])
 
+    def test_equals(self):
+        data = '''
+*** Test Cases ***
+Test
+    VAR    ${x} =      value
+    VAR    @{y}=       two    values
+'''
+        expected = TestCase(
+            header=TestCaseName([Token(Token.TESTCASE_NAME, 'Test', 2, 0)]),
+            body=[
+                Var([Token(Token.VAR, 'VAR', 3, 4),
+                     Token(Token.VARIABLE, '${x} =', 3, 11),
+                     Token(Token.ARGUMENT, 'value', 3, 23)]),
+                Var([Token(Token.VAR, 'VAR', 4, 4),
+                     Token(Token.VARIABLE, '@{y}=', 4, 11),
+                     Token(Token.ARGUMENT, 'two', 4, 23),
+                     Token(Token.ARGUMENT, 'values', 4, 30)]),
+            ]
+        )
+        test = get_and_assert_model(data, expected, depth=1)
+        assert_equal([v.name for v in test.body], ['${x}', '@{y}'])
+
     def test_options(self):
         data = r'''
 *** Test Cases ***
@@ -1067,8 +1116,10 @@ Test
 Keyword
     VAR    bad      name
     VAR    ${not    closed
-    VAR    ${x}=    = not accepted
+    VAR    ${x}==   only one = accepted
     VAR
+    VAR
+    ...
     VAR    &{d}     o=k    bad
     VAR    ${x}     ok     scope=bad
 '''
@@ -1084,23 +1135,26 @@ Keyword
                      Token(Token.ARGUMENT, 'closed', 4, 20)],
                     ["Invalid variable name '${not'."]),
                 Var([Token(Token.VAR, 'VAR', 5, 4),
-                     Token(Token.VARIABLE, '${x}=', 5, 11),
-                     Token(Token.ARGUMENT, '= not accepted', 5, 20)],
-                    ["Invalid variable name '${x}='."]),
+                     Token(Token.VARIABLE, '${x}==', 5, 11),
+                     Token(Token.ARGUMENT, 'only one = accepted', 5, 20)],
+                    ["Invalid variable name '${x}=='."]),
                 Var([Token(Token.VAR, 'VAR', 6, 4)],
                     ["Invalid variable name ''."]),
                 Var([Token(Token.VAR, 'VAR', 7, 4),
-                     Token(Token.VARIABLE, '&{d}', 7, 11),
-                     Token(Token.ARGUMENT, 'o=k', 7, 20),
-                     Token(Token.ARGUMENT, 'bad', 7, 27)],
+                     Token(Token.VARIABLE, '', 8, 7)],
+                    ["Invalid variable name ''."]),
+                Var([Token(Token.VAR, 'VAR', 9, 4),
+                     Token(Token.VARIABLE, '&{d}', 9, 11),
+                     Token(Token.ARGUMENT, 'o=k', 9, 20),
+                     Token(Token.ARGUMENT, 'bad', 9, 27)],
                     ["Invalid dictionary variable item 'bad'. Items must use "
                      "'name=value' syntax or be dictionary variables themselves."]),
-                Var([Token(Token.VAR, 'VAR', 8, 4),
-                     Token(Token.VARIABLE, '${x}', 8, 11),
-                     Token(Token.ARGUMENT, 'ok', 8, 20),
-                     Token(Token.OPTION, 'scope=bad', 8, 27)],
+                Var([Token(Token.VAR, 'VAR', 10, 4),
+                     Token(Token.VARIABLE, '${x}', 10, 11),
+                     Token(Token.ARGUMENT, 'ok', 10, 20),
+                     Token(Token.OPTION, 'scope=bad', 10, 27)],
                     ["VAR option 'scope' does not accept value 'bad'. Valid values "
-                     "are 'GLOBAL', 'SUITE', 'TEST', 'TASK' and 'LOCAL'."]),
+                     "are 'LOCAL', 'TEST', 'TASK', 'SUITE', 'SUITES' and 'GLOBAL'."]),
             ]
         )
         get_and_assert_model(data, expected, depth=1)
@@ -1285,7 +1339,7 @@ Name
 '''
         expected = For(
             header=ForHeader([Token(Token.FOR, 'FOR', 3, 4),
-                              Token(Token.ASSIGN, '${x}', 3, 11),
+                              Token(Token.VARIABLE, '${x}', 3, 11),
                               Token(Token.FOR_SEPARATOR, 'IN', 3, 19),
                               Token(Token.ARGUMENT, '@{stuff}', 3, 25)]),
             body=[KeywordCall([Token(Token.KEYWORD, 'Continue', 4, 8),
@@ -1800,22 +1854,34 @@ Example
             def visit_Return(self, node):
                 self.node = node
 
-        for cls in Return, ReturnSetting:
-            visitor = VisitReturn()
-            ret = cls.from_params(())
-            visitor.visit(ret)
-            assert_equal(visitor.node, ret)
+        class VisitReturnStatement(ModelVisitor):
+            def visit_ReturnStatement(self, node):
+                self.node = node
+
+        for node in Return.from_params(), ReturnStatement.from_params():
+            for visitor in VisitReturn(), VisitReturnStatement():
+                visitor.visit(node)
+                assert_equal(visitor.node, node)
 
     def test_visit_ReturnSetting(self):
         class VisitReturnSetting(ModelVisitor):
             def visit_ReturnSetting(self, node):
                 self.node = node
 
-        for cls in Return, ReturnSetting:
-            visitor = VisitReturnSetting()
-            ret = cls.from_params(())
-            visitor.visit(ret)
-            assert_equal(visitor.node, ret)
+        node = ReturnSetting.from_params(())
+        visitor = VisitReturnSetting()
+        visitor.visit(node)
+        assert_equal(visitor.node, node)
+
+    def test_visit_ForceTags(self):
+        class VisitForceTags(ModelVisitor):
+            def visit_ForceTags(self, node):
+                self.node = node
+
+        node = TestTags.from_params(['t1', 't2'])
+        visitor = VisitForceTags()
+        visitor.visit(node)
+        assert_equal(visitor.node, node)
 
 
 class TestLanguageConfig(unittest.TestCase):
@@ -1823,9 +1889,10 @@ class TestLanguageConfig(unittest.TestCase):
     def test_config(self):
         model = get_model('''\
 language: fi
+ignored
 language: bad
-language: bad    but ignored
-language: de     # ok
+language: b    a    d
+LANGUAGE:GER    MAN    # OK!
 *** Einstellungen ***
 Dokumentaatio    Header is de and setting is fi.
 ''')
@@ -1837,36 +1904,50 @@ Dokumentaatio    Header is de and setting is fi.
                         Token('CONFIG', 'language: fi', 1, 0),
                         Token('EOL', '\n', 1, 12)
                     ]),
+                    Comment([
+                        Token('COMMENT', 'ignored', 2, 0),
+                        Token('EOL', '\n', 2, 7)
+                    ]),
                     Error([
-                        Token('ERROR', 'language: bad', 2, 0,
+                        Token('ERROR', 'language: bad', 3, 0,
                               "Invalid language configuration: Language 'bad' "
                               "not found nor importable as a language module."),
-                        Token('EOL', '\n', 2, 13)
+                        Token('EOL', '\n', 3, 13)
                     ]),
-                    Comment([
-                        Token('COMMENT', 'language: bad', 3, 0),
-                        Token('SEPARATOR', '    ', 3, 13),
-                        Token('COMMENT', 'but ignored', 3, 17),
-                        Token('EOL', '\n', 3, 28)
+                    Error([
+                        Token('ERROR', 'language: b', 4, 0,
+                              "Invalid language configuration: Language 'b a d' "
+                              "not found nor importable as a language module."),
+                        Token('SEPARATOR', '    ', 4, 11),
+                        Token('ERROR', 'a', 4, 15,
+                              "Invalid language configuration: Language 'b a d' "
+                              "not found nor importable as a language module."),
+                        Token('SEPARATOR', '    ', 4, 16),
+                        Token('ERROR', 'd', 4, 20,
+                              "Invalid language configuration: Language 'b a d' "
+                              "not found nor importable as a language module."),
+                        Token('EOL', '\n', 4, 21)
                     ]),
                     Config([
-                        Token('CONFIG', 'language: de', 4, 0),
-                        Token('SEPARATOR', '     ', 4, 12),
-                        Token('COMMENT', '# ok', 4, 17),
-                        Token('EOL', '\n', 4, 21)
+                        Token('CONFIG', 'LANGUAGE:GER', 5, 0),
+                        Token('SEPARATOR', '    ', 5, 12),
+                        Token('CONFIG', 'MAN', 5, 16),
+                        Token('SEPARATOR', '    ', 5, 19),
+                        Token('COMMENT', '# OK!', 5, 23),
+                        Token('EOL', '\n', 5, 28)
                     ]),
                 ]),
                 SettingSection(
                     header=SectionHeader([
-                        Token('SETTING HEADER', '*** Einstellungen ***', 5, 0),
-                        Token('EOL', '\n', 5, 21)
+                        Token('SETTING HEADER', '*** Einstellungen ***', 6, 0),
+                        Token('EOL', '\n', 6, 21)
                     ]),
                     body=[
                         Documentation([
-                            Token('DOCUMENTATION', 'Dokumentaatio', 6, 0),
-                            Token('SEPARATOR', '    ', 6, 13),
-                            Token('ARGUMENT', 'Header is de and setting is fi.', 6, 17),
-                            Token('EOL', '\n', 6, 48)
+                            Token('DOCUMENTATION', 'Dokumentaatio', 7, 0),
+                            Token('SEPARATOR', '    ', 7, 13),
+                            Token('ARGUMENT', 'Header is de and setting is fi.', 7, 17),
+                            Token('EOL', '\n', 7, 48)
                         ])
                     ]
                 )

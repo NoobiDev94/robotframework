@@ -47,7 +47,7 @@ class Node(ast.AST, ABC):
 
 
 class Statement(Node, ABC):
-    _fields = ('type', 'tokens')
+    _attributes = ('type', 'tokens') + Node._attributes
     type: str
     handles_types: 'ClassVar[tuple[str, ...]]' = ()
     statement_handlers: 'ClassVar[dict[str, Type[Statement]]]' = {}
@@ -169,15 +169,10 @@ class Statement(Node, ABC):
 
         New in Robot Framework 6.1.
         """
-        options = self._get_options()
-        return ', '.join(options[name]) if name in options else default
+        return self._get_options().get(name, default)
 
-    def _get_options(self) -> 'dict[str, list[str]]':
-        options: 'dict[str, list[str]]' = {}
-        for option in self.get_values(Token.OPTION):
-            name, value = option.split('=', 1)
-            options.setdefault(name, []).append(value)
-        return options
+    def _get_options(self) -> 'dict[str, str]':
+        return dict(opt.split('=', 1) for opt in self.get_values(Token.OPTION))
 
     @property
     def lines(self) -> 'Iterator[list[Token]]':
@@ -194,12 +189,8 @@ class Statement(Node, ABC):
         pass
 
     def _validate_options(self):
-        for name, values in self._get_options().items():
-            if len(values) != 1:
-                self.errors += (f"{self.type} option '{name}' is accepted only once, "
-                                f"got {len(values)} values {seq2str(values)}.",)
-            elif self.options[name] is not None:
-                value = values[0]
+        for name, value in self._get_options().items():
+            if self.options[name] is not None:
                 expected = self.options[name]
                 if value.upper() not in expected and not contains_variable(value):
                     self.errors += (f"{self.type} option '{name}' does not accept "
@@ -676,7 +667,7 @@ class Variable(Statement):
         return self.get_option('separator')
 
     def validate(self, ctx: 'ValidationContext'):
-        VariableValidator(allow_assign_mark=True).validate(self)
+        VariableValidator().validate(self)
         self._validate_options()
 
 
@@ -827,28 +818,18 @@ class Arguments(MultiValue):
         self.errors = tuple(errors)
 
 
-# TODO: Change Return to mean ReturnStatement in RF 7.0
-# - Rename current Return to ReturnSetting
-# - Rename current ReturnStatement to Return
-# - Add backwards compatible ReturnStatement alias
-# - Change Token.RETURN to mean Token.RETURN_STATEMENT
-# - Update also ModelVisitor
 @Statement.register
-class Return(MultiValue):
+class ReturnSetting(MultiValue):
     """Represents the deprecated ``[Return]`` setting.
 
-    In addition to the ``[Return]`` setting itself, also the ``Return`` node
-    in the parsing model is deprecated and :class:`ReturnSetting` (new in
-    Robot Framework 6.1) should be used instead. :class:`ReturnStatement` will
-    be renamed to ``Return`` in Robot Framework 7.0.
-
-    Eventually ``[Return]`` and ``ReturnSetting`` will be removed altogether.
+    This class was named ``Return`` prior to Robot Framework 7.0. A forward
+    compatible ``ReturnSetting`` alias existed already in Robot Framework 6.1.
     """
     type = Token.RETURN
 
     @classmethod
     def from_params(cls, args: 'Sequence[str]', indent: str = FOUR_SPACES,
-                    separator: str = FOUR_SPACES, eol: str = EOL) -> 'Return':
+                    separator: str = FOUR_SPACES, eol: str = EOL) -> 'ReturnSetting':
         tokens = [Token(Token.SEPARATOR, indent),
                   Token(Token.RETURN, '[Return]')]
         for arg in args:
@@ -856,10 +837,6 @@ class Return(MultiValue):
                            Token(Token.ARGUMENT, arg)])
         tokens.append(Token(Token.EOL, eol))
         return cls(tokens)
-
-
-# Forward compatible alias for Return.
-ReturnSetting = Return
 
 
 @Statement.register
@@ -933,7 +910,7 @@ class ForHeader(Statement):
                   Token(Token.FOR),
                   Token(Token.SEPARATOR, separator)]
         for variable in assign:
-            tokens.extend([Token(Token.ASSIGN, variable),
+            tokens.extend([Token(Token.VARIABLE, variable),
                            Token(Token.SEPARATOR, separator)])
         tokens.append(Token(Token.FOR_SEPARATOR, flavor))
         for value in values:
@@ -944,7 +921,7 @@ class ForHeader(Statement):
 
     @property
     def assign(self) -> 'tuple[str, ...]':
-        return self.get_values(Token.ASSIGN)
+        return self.get_values(Token.VARIABLE)
 
     @property
     def variables(self) -> 'tuple[str, ...]':    # TODO: Remove in RF 8.0.
@@ -1126,7 +1103,7 @@ class ExceptHeader(Statement):
             tokens.extend([Token(Token.SEPARATOR, separator),
                            Token(Token.AS),
                            Token(Token.SEPARATOR, separator),
-                           Token(Token.ASSIGN, assign)])
+                           Token(Token.VARIABLE, assign)])
         tokens.append(Token(Token.EOL, eol))
         return cls(tokens)
 
@@ -1140,7 +1117,7 @@ class ExceptHeader(Statement):
 
     @property
     def assign(self) -> 'str|None':
-        return self.get_value(Token.ASSIGN)
+        return self.get_value(Token.VARIABLE)
 
     @property
     def variable(self) -> 'str|None':    # TODO: Remove in RF 8.0.
@@ -1151,13 +1128,13 @@ class ExceptHeader(Statement):
     def validate(self, ctx: 'ValidationContext'):
         as_token = self.get_token(Token.AS)
         if as_token:
-            variables = self.get_tokens(Token.ASSIGN)
-            if not variables:
-                self.errors += ("EXCEPT's AS requires variable.",)
-            elif len(variables) > 1:
-                self.errors += ("EXCEPT's AS accepts only one variable.",)
-            elif not is_scalar_assign(variables[0].value):
-                self.errors += (f"EXCEPT's AS variable '{variables[0].value}' is invalid.",)
+            assign = self.get_tokens(Token.VARIABLE)
+            if not assign:
+                self.errors += ("EXCEPT AS requires a value.",)
+            elif len(assign) > 1:
+                self.errors += ("EXCEPT AS accepts only one value.",)
+            elif not is_scalar_assign(assign[0].value):
+                self.errors += (f"EXCEPT AS variable '{assign[0].value}' is invalid.",)
         self._validate_options()
 
 
@@ -1231,7 +1208,7 @@ class WhileHeader(Statement):
 class Var(Statement):
     type = Token.VAR
     options = {
-        'scope': ('GLOBAL', 'SUITE', 'TEST', 'TASK', 'LOCAL'),
+        'scope': ('LOCAL', 'TEST', 'TASK', 'SUITE', 'SUITES', 'GLOBAL'),
         'separator': None
     }
 
@@ -1262,7 +1239,10 @@ class Var(Statement):
 
     @property
     def name(self) -> str:
-        return self.get_value(Token.VARIABLE, '')
+        name = self.get_value(Token.VARIABLE, '')
+        if name.endswith('='):
+            return name[:-1].rstrip()
+        return name
 
     @property
     def value(self) -> 'tuple[str, ...]':
@@ -1282,12 +1262,17 @@ class Var(Statement):
 
 
 @Statement.register
-class ReturnStatement(Statement):
+class Return(Statement):
+    """Represents the RETURN statement.
+
+    This class named ``ReturnStatement`` prior to Robot Framework 7.0.
+    The old name still exists as a backwards compatible alias.
+    """
     type = Token.RETURN_STATEMENT
 
     @classmethod
     def from_params(cls, values: 'Sequence[str]' = (), indent: str = FOUR_SPACES,
-                    separator: str = FOUR_SPACES, eol: str = EOL) -> 'ReturnStatement':
+                    separator: str = FOUR_SPACES, eol: str = EOL) -> 'Return':
         tokens = [Token(Token.SEPARATOR, indent),
                   Token(Token.RETURN_STATEMENT)]
         for value in values:
@@ -1305,6 +1290,10 @@ class ReturnStatement(Statement):
             self.errors += ('RETURN can only be used inside a user keyword.',)
         if ctx.in_finally:
             self.errors += ('RETURN cannot be used in FINALLY branch.',)
+
+
+# Backwards compatibility with RF < 7.
+ReturnStatement = Return
 
 
 class LoopControl(NoArgumentHeader, ABC):
@@ -1354,8 +1343,9 @@ class Config(Statement):
 
     @property
     def language(self) -> 'Language|None':
-        value = self.get_value(Token.CONFIG)
-        return Language.from_name(value[len('language:'):]) if value else None
+        value = ' '.join(self.get_values(Token.CONFIG))
+        lang = value.split(':', 1)[1].strip()
+        return Language.from_name(lang) if lang else None
 
 
 @Statement.register
@@ -1401,14 +1391,10 @@ class EmptyLine(Statement):
 
 class VariableValidator:
 
-    def __init__(self, allow_assign_mark: bool = False):
-        self.allow_assign_mark = allow_assign_mark
-
     def validate(self, statement: Statement):
         name = statement.get_value(Token.VARIABLE, '')
         match = search_variable(name, ignore_errors=True)
-        if not match.is_assign(allow_assign_mark=self.allow_assign_mark,
-                               allow_nested=True):
+        if not match.is_assign(allow_assign_mark=True, allow_nested=True):
             statement.errors += (f"Invalid variable name '{name}'.",)
         if match.identifier == '&':
             self._validate_dict_items(statement)
